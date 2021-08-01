@@ -1,8 +1,15 @@
+use std::alloc::Layout;
+use std::alloc;
 use std::cell::Cell;
 use std::cell::RefCell;
+use std::mem;
+use std::ops::Deref;
 use std::ptr::slice_from_raw_parts;
 use std::rc::Rc;
+use std::slice;
 
+use gtk::cairo::Format;
+use gtk::cairo::ImageSurface;
 use gtk::cairo::ffi::cairo_version_string;
 use gtk::cairo::Context;
 use gtk::gdk;
@@ -22,10 +29,6 @@ use gtk::{subclass::prelude::*, Application};
 
 mod custom_paintable;
 use custom_paintable::CustomPaintable;
-use skia_safe::Color;
-use skia_safe::Paint;
-use skia_safe::Path;
-use skia_safe::Surface;
 
 fn main() {
     let app = Application::new(Some("org.xournalpp.xournalr"), Default::default());
@@ -38,6 +41,24 @@ enum Action {
     StylusDown(StylusDownAction),
     StylusMotion(StylusMotionAction),
     StylusUp(StylusUpAction),
+    MousePress(MousePressAction),
+    MouseMotion(MouseMotionAction),
+    MouseRelease(MouseReleaseAction,)
+}
+
+struct MousePressAction {
+    x: f64,
+    y: f64,
+}
+
+struct MouseMotionAction {
+    x: f64,
+    y: f64,
+}
+
+struct MouseReleaseAction {
+    x: f64,
+    y: f64,
 }
 
 struct StylusDownAction {
@@ -69,8 +90,8 @@ fn build_ui(app: &Application) {
 
     let paintable = CustomPaintable::new();
     let picture = gtk::Picture::new();
-    picture.set_halign(gtk::Align::Center);
-    picture.set_size_request(300, 300);
+    picture.set_hexpand(true);
+    picture.set_vexpand(true);
     picture.set_paintable(Some(&paintable));
 
     let (sender, receiver) = MainContext::sync_channel::<Action>(PRIORITY_DEFAULT, 1);
@@ -88,25 +109,40 @@ fn build_ui(app: &Application) {
     });
     let sender_gesture_motion = sender.clone();
     gesture.connect_motion(move |gesture, x, y| {
-        gesture.set_sequence_state(
-            &gesture.current_sequence().unwrap(),
-            gtk::EventSequenceState::Claimed,
-        );
+        
         sender_gesture_motion
             .send(Action::StylusMotion(StylusMotionAction { x, y }))
             .unwrap();
     });
-    let sender_gesture_up = sender;
+    let sender_gesture_up = sender.clone();
     gesture.connect_motion(move |gesture, x, y| {
-        gesture.set_sequence_state(
-            &gesture.current_sequence().unwrap(),
-            gtk::EventSequenceState::Claimed,
-        );
         sender_gesture_up
             .send(Action::StylusUp(StylusUpAction { x, y }))
             .unwrap();
     });
     picture.add_controller(&gesture);
+
+    let gesture = gtk::GestureDrag::new();
+    let sender_gesture_down = sender.clone();
+    gesture.connect_drag_begin(move |gesture, x, y| {
+        sender_gesture_down
+            .send(Action::MousePress(MousePressAction { x, y }))
+            .unwrap();
+    });
+    let sender_gesture_motion = sender.clone();
+    gesture.connect_drag_update(move |gesture, x, y| {
+        sender_gesture_motion
+            .send(Action::MouseMotion(MouseMotionAction { x, y }))
+            .unwrap();
+    });
+    let sender_gesture_up = sender;
+    gesture.connect_drag_end(move |gesture, x, y| {
+        sender_gesture_up
+            .send(Action::MouseRelease(MouseReleaseAction { x, y }))
+            .unwrap();
+    });
+    picture.add_controller(&gesture);
+
     let mut widgets = Widgets {
         picture: picture.clone(),
     };
@@ -124,11 +160,7 @@ fn build_ui(app: &Application) {
 }
 
 fn update(action: Action, widgets: &mut Widgets, state: &mut AppState) {
-    match action {
-        Action::StylusDown(_) => state.drawing.dispatch(action, &widgets.picture),
-        Action::StylusMotion(_) => state.drawing.dispatch(action, &widgets.picture),
-        Action::StylusUp(_) => state.drawing.dispatch(action, &widgets.picture),
-    }
+    state.drawing.dispatch(action, &widgets.picture)
 }
 
 #[derive(Clone)]
@@ -153,6 +185,19 @@ impl Drawing {
                 self.points.last_mut().unwrap().push((x,y));
                 self.drawing = false;                
             },
+            Action::MousePress(MousePressAction{x,y}) => {
+                self.points.push(vec![(x,y)]);
+                self.drawing = true;
+            },
+            Action::MouseMotion(MouseMotionAction { x, y }) => {
+                if self.drawing {
+                    self.points.last_mut().unwrap().push((x,y));
+                }
+            },
+            Action::MouseRelease(MouseReleaseAction{x,y}) => {
+                self.points.last_mut().unwrap().push((x,y));
+                self.drawing = false;
+            },
         }
 
         let gdk_paintable = widget.paintable().unwrap();
@@ -165,35 +210,32 @@ impl Drawing {
     }
 
     fn draw(&self, width: i32, height: i32) -> MemoryTexture {
-        let mut surface = Surface::new_raster_n32_premul((width, height)).expect("no surface!");
-        let canvas = surface.canvas();
-        let mut path = Path::new();
-        let mut paint = Paint::default();
-        paint.set_color(Color::BLACK);
-        paint.set_anti_alias(true);
-        paint.set_stroke_width(1.0);
-        canvas.clear(Color::WHITE);
+        let mut surface = ImageSurface::create(Format::ARgb32, width, height).expect("no surface!");
+        let cairo_context = Context::new(&surface).unwrap();
+        cairo_context.set_source_rgb(255f64,255f64,255f64);
+        cairo_context.paint().unwrap();
+        cairo_context.set_source_rgb(0f64,0f64,255f64);
         for point in &self.points {
             let mut iter = point.iter();
             let (x, y) = iter.next().unwrap();
-            canvas.draw_path(&path, &paint);
-            path.move_to((*x as f32, *y as f32));
+            cairo_context.move_to(*x,*y);
             for (x, y) in iter {
-                path.line_to((*x as f32, *y as f32));
+                cairo_context.line_to(*x, *y);
             }
         }
-        path.close();
-        canvas.save();
-        let pixmap = surface.peek_pixels().unwrap();
-        let size = pixmap.compute_byte_size();
-        let pixmap_ptr = unsafe { pixmap.addr() };
-        let data = slice_from_raw_parts(pixmap_ptr, size) as *const [u8];
+        cairo_context.stroke().unwrap();
+        drop(cairo_context);
+        let data = {
+            let image_data = surface.data().unwrap();
+            let bytes = (&*image_data).clone();
+            Bytes::from(bytes)
+        };        
         MemoryTexture::new(
             width,
             height,
-            MemoryFormat::R8g8b8a8,
-            &Bytes::from_owned(unsafe { &*data }),
-            size,
+            MemoryFormat::A8r8g8b8,
+            &data,
+            surface.stride() as usize,
         )
     }
 }
