@@ -8,6 +8,7 @@ use std::ptr::slice_from_raw_parts;
 use std::rc::Rc;
 use std::slice;
 
+use gtk::EventSequenceState;
 use gtk::cairo::Format;
 use gtk::cairo::ImageSurface;
 use gtk::cairo::ffi::cairo_version_string;
@@ -191,14 +192,26 @@ impl Drawing {
             },
             Action::MouseMotion(MouseMotionAction { x, y }) => {
                 if self.drawing {
-                    self.points.last_mut().unwrap().push((x,y));
+                    let current_stroke = self.points.last_mut().unwrap();
+                    let (offset_x, offest_y) = current_stroke.first().unwrap();
+                    let new_x = x + offset_x;
+                    let new_y = y + offest_y;
+                    current_stroke.push((new_x, new_y));
                 }
             },
             Action::MouseRelease(MouseReleaseAction{x,y}) => {
-                self.points.last_mut().unwrap().push((x,y));
+                if self.drawing{
+                let current_stroke = self.points.last_mut().unwrap();
+                let (offset_x, offest_y) = current_stroke.first().unwrap();
+                let new_x = x + offset_x;
+                let new_y = y + offest_y;
+                current_stroke.push((new_x, new_y));
                 self.drawing = false;
+                }
             },
         }
+
+        println!("{:?}", self.points);
 
         let gdk_paintable = widget.paintable().unwrap();
         let paintable = gdk_paintable.downcast_ref::<CustomPaintable>().unwrap();
