@@ -1,27 +1,31 @@
-use std::alloc;
-use std::alloc::Layout;
-use std::cell::Cell;
 use std::cell::RefCell;
 use std::mem;
 use std::ops::Deref;
 use std::ptr::slice_from_raw_parts;
 use std::rc::Rc;
 use std::slice;
+use std::{
+    alloc::{self, Layout},
+    cell::Cell,
+};
 
 use gtk::cairo::ffi::cairo_version_string;
-use gtk::cairo::Context;
 use gtk::cairo::Format;
 use gtk::cairo::ImageSurface;
-use gtk::gdk;
-use gtk::gdk::MemoryFormat;
+use gtk::cairo::{Context, LineCap, LineJoin};
+use gtk::gdk::ffi::{GDK_AXIS_X, GDK_AXIS_Y};
 use gtk::gdk::MemoryTexture;
+use gtk::gdk::{AxisFlags, AxisUse, MemoryFormat};
 use gtk::glib;
 use gtk::glib::clone;
+use gtk::glib::translate::IntoGlib;
 use gtk::glib::Bytes;
 use gtk::glib::MainContext;
 use gtk::glib::PRIORITY_DEFAULT;
+use gtk::graphene::Point;
 use gtk::EventSequenceState;
 use gtk::Picture;
+use gtk::{gdk, Native};
 
 use gtk::gsk;
 use gtk::prelude::*;
@@ -95,29 +99,37 @@ fn build_ui(app: &Application) {
     picture.set_vexpand(true);
     picture.set_paintable(Some(&paintable));
 
-    let (sender, receiver) = MainContext::sync_channel::<Action>(PRIORITY_DEFAULT, 10);
+    let (sender, receiver) = MainContext::sync_channel::<Action>(PRIORITY_DEFAULT, 50);
 
     let gesture = gtk::GestureStylus::new();
     let sender_gesture_down = sender.clone();
     gesture.connect_down(move |gesture, x, y| {
-        gesture.set_sequence_state(
-            &gesture.current_sequence().unwrap(),
-            gtk::EventSequenceState::Claimed,
-        );
+        gesture.set_state(EventSequenceState::Claimed);
         sender_gesture_down
-            .send(Action::StylusDown(StylusDownAction { x, y }))
+            .send(Action::MousePress(MousePressAction { x, y }))
             .unwrap();
     });
     let sender_gesture_motion = sender.clone();
     gesture.connect_motion(move |gesture, x, y| {
-        sender_gesture_motion
-            .send(Action::StylusMotion(StylusMotionAction { x, y }))
-            .unwrap();
+        /*sender_gesture_motion
+        .send(Action::MouseMotion(MouseMotionAction { x, y }))
+        .unwrap();*/
+        let backlog = gesture.backlog();
+        if let Some(log) = backlog {
+            for l in log {
+                sender_gesture_motion
+                    .send(Action::MouseMotion(MouseMotionAction {
+                        x: l.axes()[GDK_AXIS_X as usize],
+                        y: l.axes()[GDK_AXIS_Y as usize],
+                    }))
+                    .unwrap();
+            }
+        }
     });
     let sender_gesture_up = sender.clone();
     gesture.connect_motion(move |gesture, x, y| {
         sender_gesture_up
-            .send(Action::StylusUp(StylusUpAction { x, y }))
+            .send(Action::MouseRelease(MouseReleaseAction { x, y }))
             .unwrap();
     });
     picture.add_controller(&gesture);
@@ -132,9 +144,61 @@ fn build_ui(app: &Application) {
     let sender_gesture_motion = sender.clone();
     gesture.connect_drag_update(move |gesture, x, y| {
         gesture.set_state(EventSequenceState::Claimed);
+        let sequence = gesture.current_sequence();
+        let event = gesture.last_event(sequence.as_ref());
         sender_gesture_motion
             .send(Action::MouseMotion(MouseMotionAction { x, y }))
             .unwrap();
+        match event {
+            Some(event) => {
+                /*
+                event widget = event surface -> native for surface
+
+                native = gtk_widget_get_native (gtk_get_event_widget (event));
+                gtk_native_get_surface_transform (native, &surf_x, &surf_y);
+
+                backlog_array = g_array_new (FALSE, FALSE, sizeof (GdkTimeCoord));
+                event_widget = gtk_get_event_widget (event);
+                controller_widget = gtk_event_controller_get_widget (GTK_EVENT_CONTROLLER (gesture));
+                for (i = 0; i < n_coords; i++)
+                  {
+                    const GdkTimeCoord *time_coord = &history[i];
+                    graphene_point_t p;
+
+                    if (gtk_widget_compute_point (event_widget, controller_widget,
+                                                  &GRAPHENE_POINT_INIT (time_coord->axes[GDK_AXIS_X] - surf_x,
+                                                                        time_coord->axes[GDK_AXIS_Y] - surf_y),
+                                                  &p))
+                      {
+                        GdkTimeCoord translated_coord = *time_coord;
+
+                        translated_coord.axes[GDK_AXIS_X] = p.x;
+                        translated_coord.axes[GDK_AXIS_Y] = p.y;
+
+                        g_array_append_val (backlog_array, translated_coord);
+                      }
+                    }
+
+                               */
+                // native = event_widget
+                let native = Native::for_surface(&event.surface().unwrap()).unwrap();
+                let controller_widget = gesture.widget().unwrap();
+                let history = event.history();
+                //println!("{}", history.len());
+                let (surf_x, surf_y) = native.surface_transform();
+                for e in history {
+                    let x = e.axes()[AxisFlags::X.bits() as usize] - surf_x;
+                    let y = e.axes()[AxisFlags::X.bits() as usize] - surf_y;
+                    let point = Point::new(x as f32, y as f32);
+                    if native.compute_point(&controller_widget, &point).is_some() {
+                        sender_gesture_motion
+                            .send(Action::MouseMotion(MouseMotionAction { x, y }))
+                            .unwrap();
+                    }
+                }
+            }
+            None => (),
+        }
     });
     let sender_gesture_up = sender;
     gesture.connect_drag_end(move |gesture, x, y| {
@@ -142,7 +206,7 @@ fn build_ui(app: &Application) {
             .send(Action::MouseRelease(MouseReleaseAction { x, y }))
             .unwrap();
     });
-    picture.add_controller(&gesture);
+    //picture.add_controller(&gesture);
 
     let mut widgets = Widgets {
         picture: picture.clone(),
@@ -161,7 +225,8 @@ fn build_ui(app: &Application) {
 }
 
 fn update(action: Action, widgets: &mut Widgets, state: &mut AppState) {
-    state.drawing.dispatch(action, &widgets.picture)
+    state.drawing.dispatch(action);
+    state.drawing.update(&widgets.picture);
 }
 
 #[derive(Clone)]
@@ -170,7 +235,7 @@ struct Drawing {
 }
 
 impl Drawing {
-    fn dispatch(&mut self, action: Action, widget: &Picture) {
+    fn dispatch(&mut self, action: Action) {
         match action {
             Action::StylusDown(StylusDownAction { x, y }) => {
                 self.points.push(vec![(x, y)]);
@@ -186,22 +251,18 @@ impl Drawing {
             }
             Action::MouseMotion(MouseMotionAction { x, y }) => {
                 let current_stroke = self.points.last_mut().unwrap();
-                let (offset_x, offest_y) = current_stroke.first().unwrap();
-                let new_x = x + offset_x;
-                let new_y = y + offest_y;
-                current_stroke.push((new_x, new_y));
+                current_stroke.push((x, y));
             }
             Action::MouseRelease(MouseReleaseAction { x, y }) => {
                 let current_stroke = self.points.last_mut().unwrap();
-                let (offset_x, offest_y) = current_stroke.first().unwrap();
-                let new_x = x + offset_x;
-                let new_y = y + offest_y;
-                current_stroke.push((new_x, new_y));
+                current_stroke.push((x, y));
             }
         }
 
-        //println!("{:?}", self.points);
+        println!("{:?}", self.points);
+    }
 
+    fn update(&self, widget: &Picture) {
         let gdk_paintable = widget.paintable().unwrap();
         let paintable = gdk_paintable.downcast_ref::<CustomPaintable>().unwrap();
         let width = widget.width();
@@ -217,6 +278,8 @@ impl Drawing {
         cairo_context.set_source_rgb(255f64, 255f64, 255f64);
         cairo_context.paint().unwrap();
         cairo_context.set_source_rgb(0f64, 0f64, 255f64);
+        cairo_context.set_line_join(LineJoin::Round);
+        cairo_context.set_line_cap(LineCap::Round);
         for point in &self.points {
             let mut iter = point.iter();
             let (x, y) = iter.next().unwrap();
