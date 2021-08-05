@@ -35,6 +35,8 @@ use gtk::{subclass::prelude::*, Application};
 mod custom_paintable;
 use custom_paintable::CustomPaintable;
 
+mod quadtree;
+
 fn main() {
     let app = Application::new(Some("org.xournalpp.xournalr"), Default::default());
     app.connect_activate(build_ui);
