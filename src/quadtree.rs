@@ -1,5 +1,6 @@
 use gtk::gsk::RenderNode;
 
+#[derive(Clone)]
 pub enum QuadTree {
     Leaf(LeafNode),
     Meta(MetaNode),
@@ -8,8 +9,11 @@ pub enum QuadTree {
 const THRESHOLD: usize = 4;
 
 impl QuadTree {
-    pub fn render(&self) -> RenderNode {
-        todo!()
+    pub fn render(&self, width: i32, height: i32, scale: f64, x_offset: f64, y_offset: f64) -> RenderNode {
+        match self {
+            QuadTree::Leaf(_) => todo!(),
+            QuadTree::Meta(_) => todo!(),
+        }
     }
     pub fn push(&mut self, stroke: Stroke) {
         //stroke coordinates are relative to current node
@@ -32,21 +36,23 @@ impl QuadTree {
                 }
             }
             QuadTree::Meta(meta) => {
-                if let Some(leaf) = meta.try_merge() {
+                
+                /*if let Some(leaf) = meta.try_merge() {
                     *self = QuadTree::Leaf(leaf);
                     self.push(stroke);
-                } else {
+                } else {*/
                     let data = stroke.split();
                     meta.top_left.push(data.tl.into());
                     meta.top_right.push(data.tr.into());
                     meta.bottom_left.push(data.bl.into());
                     meta.bottom_right.push(data.br.into());
-                }
+                //}
             }
         }
     }
 }
 
+#[derive(Clone)]
 pub struct MetaNode {
     top_left: Box<QuadTree>,
     top_right: Box<QuadTree>,
@@ -65,7 +71,7 @@ impl MetaNode {
     }
     fn try_merge(&self) -> Option<LeafNode> {
         // merge if all children leaf and size < THRESHOLD -1
-        if let QuadTree::Leaf(tl) = self.top_left.as_ref() && if let QuadTree::Leaf(tr) = self.top_right.as_ref();
+        
         match self.top_left.as_ref() {
             QuadTree::Leaf(leaf) => todo!(),
             QuadTree::Meta(meta) => todo!(),
@@ -78,8 +84,12 @@ impl LeafNode {
     fn size(&self) -> usize {
         self.objects.len()
     }
+    pub fn new() -> Self {
+        Self{objects: Vec::new()}
+    }
 }
 
+#[derive(Clone)]
 pub struct LeafNode {
     objects: Vec<Stroke>,
 }
@@ -237,8 +247,14 @@ impl Stroke {
 
         data
     }
-    fn bounding_box(&self) -> Rectangle {
+    pub fn bounding_box(&self) -> Rectangle {
         todo!()
+    }
+    pub fn new() -> Self {
+        Self {points: Vec::new()}
+    }
+    pub fn add(&mut self, x: f64, y: f64) {
+        self.points.push((x,y));
     }
 }
 

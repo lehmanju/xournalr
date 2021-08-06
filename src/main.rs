@@ -16,7 +16,7 @@ use gtk::cairo::{Context, LineCap, LineJoin};
 use gtk::gdk::ffi::{GDK_AXIS_X, GDK_AXIS_Y};
 use gtk::gdk::MemoryTexture;
 use gtk::gdk::{AxisFlags, AxisUse, MemoryFormat};
-use gtk::glib;
+use gtk::{Widget, WidgetPaintable, glib};
 use gtk::glib::clone;
 use gtk::glib::translate::IntoGlib;
 use gtk::glib::Bytes;
@@ -34,10 +34,16 @@ use gtk::{subclass::prelude::*, Application};
 
 mod custom_paintable;
 use custom_paintable::CustomPaintable;
+use quadtree::{LeafNode, QuadTree, Stroke};
 
 mod quadtree;
+mod custom_widget;
+
+static glib_logger: glib::GlibLogger = glib::GlibLogger::new(glib::GlibLoggerFormat::Plain, glib::GlibLoggerDomain::CrateTarget);
 
 fn main() {
+    log::set_logger(&glib_logger);
+    log::set_max_level(log::LevelFilter::Debug);
     let app = Application::new(Some("org.xournalpp.xournalr"), Default::default());
     app.connect_activate(build_ui);
 
@@ -45,12 +51,15 @@ fn main() {
 }
 
 enum Action {
-    StylusDown(StylusDownAction),
-    StylusMotion(StylusMotionAction),
-    StylusUp(StylusUpAction),
     MousePress(MousePressAction),
     MouseMotion(MouseMotionAction),
     MouseRelease(MouseReleaseAction),
+    Allocation(AllocationAction),
+}
+
+struct AllocationAction {
+    width: i32,
+    height: i32,
 }
 
 struct MousePressAction {
@@ -83,12 +92,21 @@ struct StylusUpAction {
 
 #[derive(Clone)]
 struct Widgets {
-    picture: gtk::Picture,
+    paintable: CustomPaintable,
 }
 
 #[derive(Clone)]
 struct AppState {
-    drawing: Drawing,
+    /// document
+    drawing: QuadTree,
+    /// currently drawn stroke
+    stroke: Option<Stroke>,
+    /// scale factor
+    scale: f64,
+    /// x scroll offset (negative = picture moved left)
+    x_offset: f64,
+    /// y scroll offset (negative = picture moved up)
+    y_offset: f64
 }
 
 fn build_ui(app: &Application) {
@@ -101,7 +119,7 @@ fn build_ui(app: &Application) {
     picture.set_vexpand(true);
     picture.set_paintable(Some(&paintable));
 
-    let (sender, receiver) = MainContext::sync_channel::<Action>(PRIORITY_DEFAULT, 50);
+    let (sender, receiver) = MainContext::sync_channel::<Action>(PRIORITY_DEFAULT, 10);
 
     let gesture = gtk::GestureStylus::new();
     let sender_gesture_down = sender.clone();
@@ -211,10 +229,14 @@ fn build_ui(app: &Application) {
     //picture.add_controller(&gesture);
 
     let mut widgets = Widgets {
-        picture: picture.clone(),
+        paintable: paintable.clone(),
     };
     let state = Rc::new(RefCell::new(AppState {
-        drawing: Drawing { points: Vec::new() },
+        drawing: QuadTree::Leaf(LeafNode::new()),
+        stroke: None,
+        scale: 1.0,
+        x_offset: 0.0,
+        y_offset: 0.0,
     }));
 
     receiver.attach(None, move |action| {
@@ -227,29 +249,16 @@ fn build_ui(app: &Application) {
 }
 
 fn update(action: Action, widgets: &mut Widgets, state: &mut AppState) {
-    state.drawing.dispatch(action);
-    state.drawing.update(&widgets.picture);
+    state.dispatch(action);    
+    widgets.paintable.invalidate_contents();
 }
 
-#[derive(Clone)]
-struct Drawing {
-    points: Vec<Vec<(f64, f64)>>,
-}
-
-impl Drawing {
+impl AppState {
     fn dispatch(&mut self, action: Action) {
         match action {
-            Action::StylusDown(StylusDownAction { x, y }) => {
-                self.points.push(vec![(x, y)]);
-            }
-            Action::StylusMotion(StylusMotionAction { x, y }) => {
-                self.points.last_mut().unwrap().push((x, y));
-            }
-            Action::StylusUp(StylusUpAction { x, y }) => {
-                self.points.last_mut().unwrap().push((x, y));
-            }
             Action::MousePress(MousePressAction { x, y }) => {
-                self.points.push(vec![(x, y)]);
+                let mut stroke = Stroke::new();
+                stroke.add(x,y);
             }
             Action::MouseMotion(MouseMotionAction { x, y }) => {
                 let current_stroke = self.points.last_mut().unwrap();
@@ -260,8 +269,6 @@ impl Drawing {
                 current_stroke.push((x, y));
             }
         }
-
-        println!("{:?}", self.points);
     }
 
     fn update(&self, widget: &Picture) {
@@ -270,7 +277,7 @@ impl Drawing {
         let width = widget.width();
         let height = widget.height();
         let texture = self.draw(width, height);
-        paintable.set_texture(texture.upcast());
+        paintable.set_render_node(texture.upcast());
         widget.queue_draw();
     }
 
