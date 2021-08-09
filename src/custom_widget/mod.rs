@@ -1,9 +1,13 @@
 mod imp;
 
-use gtk::{gdk::{self, Texture}, glib::{self, Receiver, Sender}, gsk::RenderNode, subclass::prelude::ObjectSubclassExt};
+use glib::SyncSender;
+use gtk::{gsk::RenderNode, subclass::prelude::ObjectSubclassExt};
+use ring_channel::RingReceiver;
+
+use crate::Action;
 
 glib::wrapper! {
-    pub struct MainWidget(ObjectSubclass<imp::MainWidget>);
+    pub struct MainWidget(ObjectSubclass<imp::MainWidget>) @extends gtk::Widget;
 }
 
 impl Default for MainWidget {
@@ -16,16 +20,12 @@ impl MainWidget {
     pub fn new() -> Self {
         glib::Object::new(&[]).expect("Failed to create a CustomPaintable")
     }
-    pub fn set_render_node(&self, render_node: RenderNode) {
+    pub fn set_render_channel(&self, receiver: RingReceiver<RenderNode>) {
         let self_ = imp::MainWidget::from_instance(self);
-        //*self_.render_node.borrow_mut() = Some(render_node);
+        self_.frame_receiver = Some(receiver);
     }
-    pub fn size_change_channel(&self) -> Receiver<(i32,i32)> {
+    pub fn set_size_channel(&self, sender: SyncSender<Action>) {
         let self_ = imp::MainWidget::from_instance(self);
-        self_.size_receiver.take().unwrap()
-    }
-    pub fn frame_pipeline_channel(&self) -> Sender<RenderNode> {
-        let self_ = imp::MainWidget::from_instance(self);
-        self_.frame_sender.clone()
+        self_.size_sender = Some(sender);
     }
 }

@@ -1,4 +1,9 @@
-use gtk::gsk::RenderNode;
+use glib::Bytes;
+use gtk::{
+    cairo::{Context, Format, ImageSurface, LineCap, LineJoin},
+    gdk::{MemoryFormat, MemoryTexture},
+    gsk::RenderNode,
+};
 
 #[derive(Clone)]
 pub enum QuadTree {
@@ -9,7 +14,14 @@ pub enum QuadTree {
 const THRESHOLD: usize = 4;
 
 impl QuadTree {
-    pub fn render(&self, width: i32, height: i32, scale: f64, x_offset: f64, y_offset: f64) -> RenderNode {
+    pub fn render(
+        &self,
+        width: i32,
+        height: i32,
+        scale: f64,
+        x_offset: f64,
+        y_offset: f64,
+    ) -> RenderNode {
         match self {
             QuadTree::Leaf(_) => todo!(),
             QuadTree::Meta(_) => todo!(),
@@ -36,16 +48,15 @@ impl QuadTree {
                 }
             }
             QuadTree::Meta(meta) => {
-                
                 /*if let Some(leaf) = meta.try_merge() {
                     *self = QuadTree::Leaf(leaf);
                     self.push(stroke);
                 } else {*/
-                    let data = stroke.split();
-                    meta.top_left.push(data.tl.into());
-                    meta.top_right.push(data.tr.into());
-                    meta.bottom_left.push(data.bl.into());
-                    meta.bottom_right.push(data.br.into());
+                let data = stroke.split();
+                meta.top_left.push(data.tl.into());
+                meta.top_right.push(data.tr.into());
+                meta.bottom_left.push(data.bl.into());
+                meta.bottom_right.push(data.br.into());
                 //}
             }
         }
@@ -71,7 +82,7 @@ impl MetaNode {
     }
     fn try_merge(&self) -> Option<LeafNode> {
         // merge if all children leaf and size < THRESHOLD -1
-        
+
         match self.top_left.as_ref() {
             QuadTree::Leaf(leaf) => todo!(),
             QuadTree::Meta(meta) => todo!(),
@@ -85,7 +96,9 @@ impl LeafNode {
         self.objects.len()
     }
     pub fn new() -> Self {
-        Self{objects: Vec::new()}
+        Self {
+            objects: Vec::new(),
+        }
     }
 }
 
@@ -247,14 +260,33 @@ impl Stroke {
 
         data
     }
-    pub fn bounding_box(&self) -> Rectangle {
-        todo!()
-    }
     pub fn new() -> Self {
-        Self {points: Vec::new()}
+        Self { points: Vec::new() }
     }
     pub fn add(&mut self, x: f64, y: f64) {
-        self.points.push((x,y));
+        self.points.push((x, y));
+    }
+    pub fn draw(&self, width: i32, height: i32) -> MemoryTexture {
+        let mut surface = ImageSurface::create(Format::ARgb32, width, height).expect("no surface!");
+        let cairo_context = Context::new(&surface).unwrap();
+        cairo_context.set_source_rgb(255f64, 255f64, 255f64);
+        cairo_context.paint().unwrap();
+        cairo_context.set_source_rgb(0f64, 0f64, 255f64);
+        cairo_context.set_line_join(LineJoin::Round);
+        cairo_context.set_line_cap(LineCap::Round);
+        let mut iter = self.points.iter();
+        let (x_start, y_start) = iter.next().unwrap();
+        cairo_context.move_to(*x_start, *y_start);
+        for (x,y) in iter {
+            cairo_context.line_to(*x, *y);
+        }
+        cairo_context.stroke().unwrap();
+        drop(cairo_context);
+        let stride = surface.stride() as usize;
+        let image_data = surface.data().unwrap();
+        let bytes = &(*image_data);
+        let data = Bytes::from(bytes);
+        MemoryTexture::new(width, height, MemoryFormat::A8r8g8b8, &data, stride)
     }
 }
 
@@ -275,6 +307,6 @@ mod test {
             points: vec![(0.0, 0.0), (1.1, 1.1), (87.2, 22.3)],
         };
         let mut tree = LeafNode::new();
-        tree.push(stroke);
+        //tree.push(stroke);
     }
 }

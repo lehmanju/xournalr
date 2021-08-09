@@ -9,4 +9,4 @@ edition = "2018"
 gtk = { version = "0.2" , package = "gtk4"}
 glib = { version = "0.14", features = ["log"]}
 log = "0.4"
-rtrb = "0.1"
+ring-channel = "0.8"

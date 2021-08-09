@@ -1,5 +1,6 @@
 use std::cell::RefCell;
 use std::mem;
+use std::num::NonZeroUsize;
 use std::ops::Deref;
 use std::ptr::slice_from_raw_parts;
 use std::rc::Rc;
@@ -22,22 +23,23 @@ use gtk::glib::translate::IntoGlib;
 use gtk::glib::Bytes;
 use gtk::glib::MainContext;
 use gtk::glib::PRIORITY_DEFAULT;
-use gtk::graphene::Point;
+use gtk::graphene::{Point, Rect};
 use gtk::EventSequenceState;
 use gtk::Picture;
 use gtk::{gdk, Native};
 
-use gtk::gsk;
+use gtk::gsk::{self, ContainerNode, IsRenderNode, RenderNode, TextureNode};
 use gtk::prelude::*;
 use gtk::ApplicationWindow;
 use gtk::{subclass::prelude::*, Application};
 
-mod custom_paintable;
-use custom_paintable::CustomPaintable;
 use quadtree::{LeafNode, QuadTree, Stroke};
 
 mod quadtree;
 mod custom_widget;
+use custom_widget::MainWidget;
+
+use ring_channel::*;
 
 static glib_logger: glib::GlibLogger = glib::GlibLogger::new(glib::GlibLoggerFormat::Plain, glib::GlibLoggerDomain::CrateTarget);
 
@@ -50,6 +52,7 @@ fn main() {
     app.run();
 }
 
+#[derive(Clone, Copy)]
 enum Action {
     MousePress(MousePressAction),
     MouseMotion(MouseMotionAction),
@@ -57,42 +60,37 @@ enum Action {
     Allocation(AllocationAction),
 }
 
+#[derive(Clone, Copy)]
 struct AllocationAction {
     width: i32,
     height: i32,
 }
+
+#[derive(Clone, Copy)]
 
 struct MousePressAction {
     x: f64,
     y: f64,
 }
 
+#[derive(Clone, Copy)]
+
 struct MouseMotionAction {
     x: f64,
     y: f64,
 }
+
+#[derive(Clone, Copy)]
 
 struct MouseReleaseAction {
     x: f64,
     y: f64,
 }
 
-struct StylusDownAction {
-    x: f64,
-    y: f64,
-}
-struct StylusMotionAction {
-    x: f64,
-    y: f64,
-}
-struct StylusUpAction {
-    x: f64,
-    y: f64,
-}
-
 #[derive(Clone)]
 struct Widgets {
-    paintable: CustomPaintable,
+    widget: MainWidget,
+    pipeline: RingSender<RenderNode>,
 }
 
 #[derive(Clone)]
@@ -106,20 +104,27 @@ struct AppState {
     /// x scroll offset (negative = picture moved left)
     x_offset: f64,
     /// y scroll offset (negative = picture moved up)
-    y_offset: f64
+    y_offset: f64,
+    /// width
+    width: i32,
+    /// height
+    height: i32,
 }
 
 fn build_ui(app: &Application) {
     let window = ApplicationWindow::new(app);
     window.set_title(Some("XournalR"));
 
-    let paintable = CustomPaintable::new();
-    let picture = gtk::Picture::new();
-    picture.set_hexpand(true);
-    picture.set_vexpand(true);
-    picture.set_paintable(Some(&paintable));
+    let widget = MainWidget::new();
+    widget.set_hexpand(true);
+    widget.set_vexpand(true);
 
     let (sender, receiver) = MainContext::sync_channel::<Action>(PRIORITY_DEFAULT, 10);
+    widget.set_size_channel(sender.clone());
+
+    // render 3 frames in advance
+    let (frame_sender, frame_receiver) = ring_channel(NonZeroUsize::new(3).unwrap());
+    widget.set_render_channel(frame_receiver);
 
     let gesture = gtk::GestureStylus::new();
     let sender_gesture_down = sender.clone();
@@ -152,7 +157,7 @@ fn build_ui(app: &Application) {
             .send(Action::MouseRelease(MouseReleaseAction { x, y }))
             .unwrap();
     });
-    picture.add_controller(&gesture);
+    //widget.add_controller(&gesture);
 
     let gesture = gtk::GestureDrag::new();
     let sender_gesture_down = sender.clone();
@@ -164,61 +169,9 @@ fn build_ui(app: &Application) {
     let sender_gesture_motion = sender.clone();
     gesture.connect_drag_update(move |gesture, x, y| {
         gesture.set_state(EventSequenceState::Claimed);
-        let sequence = gesture.current_sequence();
-        let event = gesture.last_event(sequence.as_ref());
         sender_gesture_motion
             .send(Action::MouseMotion(MouseMotionAction { x, y }))
             .unwrap();
-        match event {
-            Some(event) => {
-                /*
-                event widget = event surface -> native for surface
-
-                native = gtk_widget_get_native (gtk_get_event_widget (event));
-                gtk_native_get_surface_transform (native, &surf_x, &surf_y);
-
-                backlog_array = g_array_new (FALSE, FALSE, sizeof (GdkTimeCoord));
-                event_widget = gtk_get_event_widget (event);
-                controller_widget = gtk_event_controller_get_widget (GTK_EVENT_CONTROLLER (gesture));
-                for (i = 0; i < n_coords; i++)
-                  {
-                    const GdkTimeCoord *time_coord = &history[i];
-                    graphene_point_t p;
-
-                    if (gtk_widget_compute_point (event_widget, controller_widget,
-                                                  &GRAPHENE_POINT_INIT (time_coord->axes[GDK_AXIS_X] - surf_x,
-                                                                        time_coord->axes[GDK_AXIS_Y] - surf_y),
-                                                  &p))
-                      {
-                        GdkTimeCoord translated_coord = *time_coord;
-
-                        translated_coord.axes[GDK_AXIS_X] = p.x;
-                        translated_coord.axes[GDK_AXIS_Y] = p.y;
-
-                        g_array_append_val (backlog_array, translated_coord);
-                      }
-                    }
-
-                               */
-                // native = event_widget
-                let native = Native::for_surface(&event.surface().unwrap()).unwrap();
-                let controller_widget = gesture.widget().unwrap();
-                let history = event.history();
-                //println!("{}", history.len());
-                let (surf_x, surf_y) = native.surface_transform();
-                for e in history {
-                    let x = e.axes()[AxisFlags::X.bits() as usize] - surf_x;
-                    let y = e.axes()[AxisFlags::X.bits() as usize] - surf_y;
-                    let point = Point::new(x as f32, y as f32);
-                    if native.compute_point(&controller_widget, &point).is_some() {
-                        sender_gesture_motion
-                            .send(Action::MouseMotion(MouseMotionAction { x, y }))
-                            .unwrap();
-                    }
-                }
-            }
-            None => (),
-        }
     });
     let sender_gesture_up = sender;
     gesture.connect_drag_end(move |gesture, x, y| {
@@ -226,10 +179,11 @@ fn build_ui(app: &Application) {
             .send(Action::MouseRelease(MouseReleaseAction { x, y }))
             .unwrap();
     });
-    //picture.add_controller(&gesture);
+    widget.add_controller(&gesture);
 
     let mut widgets = Widgets {
-        paintable: paintable.clone(),
+        widget: widget.clone(),
+        pipeline: frame_sender,
     };
     let state = Rc::new(RefCell::new(AppState {
         drawing: QuadTree::Leaf(LeafNode::new()),
@@ -237,6 +191,8 @@ fn build_ui(app: &Application) {
         scale: 1.0,
         x_offset: 0.0,
         y_offset: 0.0,
+        width: 0,
+        height: 0,
     }));
 
     receiver.attach(None, move |action| {
@@ -244,65 +200,49 @@ fn build_ui(app: &Application) {
         Continue(true)
     });
 
-    window.set_child(Some(&picture));
+    window.set_child(Some(&widget));
     window.present();
 }
 
 fn update(action: Action, widgets: &mut Widgets, state: &mut AppState) {
     state.dispatch(action);    
-    widgets.paintable.invalidate_contents();
+    widgets.update(state);
+}
+
+impl Widgets {
+    fn update(&mut self, state: &AppState) {
+        let mut render_node = state.drawing.render(state.width, state.height, state.scale, state.x_offset, state.y_offset);
+        if let Some(stroke) = &state.stroke {
+            let stroke_texture = stroke.draw(state.width, state.height);
+            let rect = Rect::new(0.0,0.0, state.width as f32, state.height as f32);
+            let texture_node = TextureNode::new(&stroke_texture,&rect);
+            render_node = ContainerNode::new(&[render_node, texture_node.upcast()]).upcast();
+        }
+        self.pipeline.send(render_node);
+        self.widget.queue_draw();
+    }
 }
 
 impl AppState {
     fn dispatch(&mut self, action: Action) {
         match action {
             Action::MousePress(MousePressAction { x, y }) => {
-                let mut stroke = Stroke::new();
-                stroke.add(x,y);
+                self.stroke = Some(Stroke::new());
+                self.stroke.as_mut().unwrap().add(x,y);
             }
             Action::MouseMotion(MouseMotionAction { x, y }) => {
-                let current_stroke = self.points.last_mut().unwrap();
-                current_stroke.push((x, y));
+                self.stroke.as_mut().unwrap().add(x,y);
             }
             Action::MouseRelease(MouseReleaseAction { x, y }) => {
-                let current_stroke = self.points.last_mut().unwrap();
-                current_stroke.push((x, y));
+                let mut stroke = self.stroke.take().unwrap();
+                stroke.add(x,y);
+                self.drawing.push(stroke);
+                self.stroke = None;
             }
+            Action::Allocation(AllocationAction { width, height }) => {
+                self.width = width;
+                self.height = height;
+            },
         }
-    }
-
-    fn update(&self, widget: &Picture) {
-        let gdk_paintable = widget.paintable().unwrap();
-        let paintable = gdk_paintable.downcast_ref::<CustomPaintable>().unwrap();
-        let width = widget.width();
-        let height = widget.height();
-        let texture = self.draw(width, height);
-        paintable.set_render_node(texture.upcast());
-        widget.queue_draw();
-    }
-
-    fn draw(&self, width: i32, height: i32) -> MemoryTexture {
-        let mut surface = ImageSurface::create(Format::ARgb32, width, height).expect("no surface!");
-        let cairo_context = Context::new(&surface).unwrap();
-        cairo_context.set_source_rgb(255f64, 255f64, 255f64);
-        cairo_context.paint().unwrap();
-        cairo_context.set_source_rgb(0f64, 0f64, 255f64);
-        cairo_context.set_line_join(LineJoin::Round);
-        cairo_context.set_line_cap(LineCap::Round);
-        for point in &self.points {
-            let mut iter = point.iter();
-            let (x, y) = iter.next().unwrap();
-            cairo_context.move_to(*x, *y);
-            for (x, y) in iter {
-                cairo_context.line_to(*x, *y);
-            }
-        }
-        cairo_context.stroke().unwrap();
-        drop(cairo_context);
-        let stride = surface.stride() as usize;
-        let image_data = surface.data().unwrap();
-        let bytes = &(*image_data);
-        let data = Bytes::from(bytes);
-        MemoryTexture::new(width, height, MemoryFormat::A8r8g8b8, &data, stride)
     }
 }
