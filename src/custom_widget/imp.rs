@@ -1,13 +1,15 @@
+use std::cell::RefCell;
+
+use crate::{Action, AllocationAction};
 use gtk::glib::{self, SyncSender};
 use gtk::gsk::RenderNode;
 use gtk::subclass::prelude::*;
 use ring_channel::RingReceiver;
-use crate::{Action, AllocationAction};
 
 #[derive(Default)]
 pub struct MainWidget {
-    pub size_sender: Option<SyncSender<Action>>,
-    pub frame_receiver: Option<RingReceiver<RenderNode>>,
+    pub size_sender: RefCell<Option<SyncSender<Action>>>,
+    pub frame_receiver: RefCell<Option<RingReceiver<RenderNode>>>,
 }
 
 #[glib::object_subclass]
@@ -20,16 +22,20 @@ impl ObjectSubclass for MainWidget {
 impl ObjectImpl for MainWidget {}
 
 impl WidgetImpl for MainWidget {
-    fn size_allocate(&self, widget: &Self::Type, width: i32, height: i32, baseline: i32) {
-        match self.size_sender {
+    fn size_allocate(&self, _: &Self::Type, width: i32, height: i32, _: i32) {
+        match self.size_sender.borrow_mut().as_mut() {
             Some(sender) => {
-                sender.send(Action::Allocation(AllocationAction { width, height }));
+                let result = sender.send(Action::Allocation(AllocationAction { width, height }));
+                match result {
+                    Ok(_) => log::debug!("Sent size allocation"),
+                    Err(err) => log::warn!("SendError: {:?}", err),
+                }
             }
             None => log::debug!("Sender not yet initialized"),
         }
     }
-    fn snapshot(&self, widget: &Self::Type, snapshot: &gtk::Snapshot) {
-        match self.frame_receiver {
+    fn snapshot(&self, _: &Self::Type, snapshot: &gtk::Snapshot) {
+        match self.frame_receiver.borrow_mut().as_mut() {
             Some(receiver) => {
                 let result = receiver.recv();
                 match result {

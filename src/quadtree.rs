@@ -277,7 +277,7 @@ impl Stroke {
         let mut iter = self.points.iter();
         let (x_start, y_start) = iter.next().unwrap();
         cairo_context.move_to(*x_start, *y_start);
-        for (x,y) in iter {
+        for (x, y) in iter {
             cairo_context.line_to(*x, *y);
         }
         cairo_context.stroke().unwrap();

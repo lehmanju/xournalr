@@ -17,7 +17,6 @@ use gtk::cairo::{Context, LineCap, LineJoin};
 use gtk::gdk::ffi::{GDK_AXIS_X, GDK_AXIS_Y};
 use gtk::gdk::MemoryTexture;
 use gtk::gdk::{AxisFlags, AxisUse, MemoryFormat};
-use gtk::{Widget, WidgetPaintable, glib};
 use gtk::glib::clone;
 use gtk::glib::translate::IntoGlib;
 use gtk::glib::Bytes;
@@ -27,6 +26,7 @@ use gtk::graphene::{Point, Rect};
 use gtk::EventSequenceState;
 use gtk::Picture;
 use gtk::{gdk, Native};
+use gtk::{glib, Widget, WidgetPaintable};
 
 use gtk::gsk::{self, ContainerNode, IsRenderNode, RenderNode, TextureNode};
 use gtk::prelude::*;
@@ -35,13 +35,16 @@ use gtk::{subclass::prelude::*, Application};
 
 use quadtree::{LeafNode, QuadTree, Stroke};
 
-mod quadtree;
 mod custom_widget;
+mod quadtree;
 use custom_widget::MainWidget;
 
 use ring_channel::*;
 
-static glib_logger: glib::GlibLogger = glib::GlibLogger::new(glib::GlibLoggerFormat::Plain, glib::GlibLoggerDomain::CrateTarget);
+static glib_logger: glib::GlibLogger = glib::GlibLogger::new(
+    glib::GlibLoggerFormat::Plain,
+    glib::GlibLoggerDomain::CrateTarget,
+);
 
 fn main() {
     log::set_logger(&glib_logger);
@@ -53,7 +56,7 @@ fn main() {
 }
 
 #[derive(Clone, Copy)]
-enum Action {
+pub enum Action {
     MousePress(MousePressAction),
     MouseMotion(MouseMotionAction),
     MouseRelease(MouseReleaseAction),
@@ -61,28 +64,28 @@ enum Action {
 }
 
 #[derive(Clone, Copy)]
-struct AllocationAction {
+pub struct AllocationAction {
     width: i32,
     height: i32,
 }
 
 #[derive(Clone, Copy)]
 
-struct MousePressAction {
+pub struct MousePressAction {
     x: f64,
     y: f64,
 }
 
 #[derive(Clone, Copy)]
 
-struct MouseMotionAction {
+pub struct MouseMotionAction {
     x: f64,
     y: f64,
 }
 
 #[derive(Clone, Copy)]
 
-struct MouseReleaseAction {
+pub struct MouseReleaseAction {
     x: f64,
     y: f64,
 }
@@ -205,17 +208,23 @@ fn build_ui(app: &Application) {
 }
 
 fn update(action: Action, widgets: &mut Widgets, state: &mut AppState) {
-    state.dispatch(action);    
+    state.dispatch(action);
     widgets.update(state);
 }
 
 impl Widgets {
     fn update(&mut self, state: &AppState) {
-        let mut render_node = state.drawing.render(state.width, state.height, state.scale, state.x_offset, state.y_offset);
+        let mut render_node = state.drawing.render(
+            state.width,
+            state.height,
+            state.scale,
+            state.x_offset,
+            state.y_offset,
+        );
         if let Some(stroke) = &state.stroke {
             let stroke_texture = stroke.draw(state.width, state.height);
-            let rect = Rect::new(0.0,0.0, state.width as f32, state.height as f32);
-            let texture_node = TextureNode::new(&stroke_texture,&rect);
+            let rect = Rect::new(0.0, 0.0, state.width as f32, state.height as f32);
+            let texture_node = TextureNode::new(&stroke_texture, &rect);
             render_node = ContainerNode::new(&[render_node, texture_node.upcast()]).upcast();
         }
         self.pipeline.send(render_node);
@@ -228,21 +237,21 @@ impl AppState {
         match action {
             Action::MousePress(MousePressAction { x, y }) => {
                 self.stroke = Some(Stroke::new());
-                self.stroke.as_mut().unwrap().add(x,y);
+                self.stroke.as_mut().unwrap().add(x, y);
             }
             Action::MouseMotion(MouseMotionAction { x, y }) => {
-                self.stroke.as_mut().unwrap().add(x,y);
+                self.stroke.as_mut().unwrap().add(x, y);
             }
             Action::MouseRelease(MouseReleaseAction { x, y }) => {
                 let mut stroke = self.stroke.take().unwrap();
-                stroke.add(x,y);
+                stroke.add(x, y);
                 self.drawing.push(stroke);
                 self.stroke = None;
             }
             Action::Allocation(AllocationAction { width, height }) => {
                 self.width = width;
                 self.height = height;
-            },
+            }
         }
     }
 }

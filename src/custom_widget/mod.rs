@@ -22,10 +22,10 @@ impl MainWidget {
     }
     pub fn set_render_channel(&self, receiver: RingReceiver<RenderNode>) {
         let self_ = imp::MainWidget::from_instance(self);
-        self_.frame_receiver = Some(receiver);
+        *self_.frame_receiver.borrow_mut() = Some(receiver);
     }
     pub fn set_size_channel(&self, sender: SyncSender<Action>) {
         let self_ = imp::MainWidget::from_instance(self);
-        self_.size_sender = Some(sender);
+        *self_.size_sender.borrow_mut() = Some(sender);
     }
 }
