@@ -10,3 +10,5 @@ gtk = { version = "0.2" , package = "gtk4"}
 glib = { version = "0.14", features = ["log"]}
 log = "0.4"
 ring-channel = "0.8"
+euclid = "0.22"
+rstar = "0.9"

@@ -1,39 +1,19 @@
 use std::cell::RefCell;
-use std::mem;
 use std::num::NonZeroUsize;
-use std::ops::Deref;
-use std::ptr::slice_from_raw_parts;
 use std::rc::Rc;
-use std::slice;
-use std::{
-    alloc::{self, Layout},
-    cell::Cell,
-};
-
-use gtk::cairo::ffi::cairo_version_string;
-use gtk::cairo::Format;
-use gtk::cairo::ImageSurface;
-use gtk::cairo::{Context, LineCap, LineJoin};
+use cgmath::Matrix3;
 use gtk::gdk::ffi::{GDK_AXIS_X, GDK_AXIS_Y};
-use gtk::gdk::MemoryTexture;
-use gtk::gdk::{AxisFlags, AxisUse, MemoryFormat};
-use gtk::glib::clone;
-use gtk::glib::translate::IntoGlib;
-use gtk::glib::Bytes;
 use gtk::glib::MainContext;
 use gtk::glib::PRIORITY_DEFAULT;
-use gtk::graphene::{Point, Rect};
+use gtk::graphene::{Rect};
 use gtk::EventSequenceState;
-use gtk::Picture;
-use gtk::{gdk, Native};
-use gtk::{glib, Widget, WidgetPaintable};
-
-use gtk::gsk::{self, ContainerNode, IsRenderNode, RenderNode, TextureNode};
+use gtk::{glib};
+use gtk::gsk::{ContainerNode, IsRenderNode, RenderNode, TextureNode};
 use gtk::prelude::*;
 use gtk::ApplicationWindow;
-use gtk::{subclass::prelude::*, Application};
+use gtk::Application;
 
-use quadtree::{LeafNode, QuadTree, Stroke};
+use quadtree::{LeafNode, QuadTree, Stroke, Viewport};
 
 mod custom_widget;
 mod quadtree;
@@ -41,13 +21,13 @@ use custom_widget::MainWidget;
 
 use ring_channel::*;
 
-static glib_logger: glib::GlibLogger = glib::GlibLogger::new(
+static GLIB_LOGGER: glib::GlibLogger = glib::GlibLogger::new(
     glib::GlibLoggerFormat::Plain,
     glib::GlibLoggerDomain::CrateTarget,
 );
 
 fn main() {
-    log::set_logger(&glib_logger);
+    log::set_logger(&GLIB_LOGGER);
     log::set_max_level(log::LevelFilter::Debug);
     let app = Application::new(Some("org.xournalpp.xournalr"), Default::default());
     app.connect_activate(build_ui);
@@ -102,16 +82,7 @@ struct AppState {
     drawing: QuadTree,
     /// currently drawn stroke
     stroke: Option<Stroke>,
-    /// scale factor
-    scale: f64,
-    /// x scroll offset (negative = picture moved left)
-    x_offset: f64,
-    /// y scroll offset (negative = picture moved up)
-    y_offset: f64,
-    /// width
-    width: i32,
-    /// height
-    height: i32,
+    viewport: Viewport,
 }
 
 fn build_ui(app: &Application) {
@@ -138,7 +109,7 @@ fn build_ui(app: &Application) {
             .unwrap();
     });
     let sender_gesture_motion = sender.clone();
-    gesture.connect_motion(move |gesture, x, y| {
+    gesture.connect_motion(move |gesture, _x, _y| {
         /*sender_gesture_motion
         .send(Action::MouseMotion(MouseMotionAction { x, y }))
         .unwrap();*/
@@ -155,7 +126,7 @@ fn build_ui(app: &Application) {
         }
     });
     let sender_gesture_up = sender.clone();
-    gesture.connect_motion(move |gesture, x, y| {
+    gesture.connect_motion(move |_gesture, x, y| {
         sender_gesture_up
             .send(Action::MouseRelease(MouseReleaseAction { x, y }))
             .unwrap();
@@ -164,7 +135,7 @@ fn build_ui(app: &Application) {
 
     let gesture = gtk::GestureDrag::new();
     let sender_gesture_down = sender.clone();
-    gesture.connect_drag_begin(move |gesture, x, y| {
+    gesture.connect_drag_begin(move |_gesture, x, y| {
         sender_gesture_down
             .send(Action::MousePress(MousePressAction { x, y }))
             .unwrap();
@@ -177,7 +148,7 @@ fn build_ui(app: &Application) {
             .unwrap();
     });
     let sender_gesture_up = sender;
-    gesture.connect_drag_end(move |gesture, x, y| {
+    gesture.connect_drag_end(move |_gesture, x, y| {
         sender_gesture_up
             .send(Action::MouseRelease(MouseReleaseAction { x, y }))
             .unwrap();
@@ -191,11 +162,10 @@ fn build_ui(app: &Application) {
     let state = Rc::new(RefCell::new(AppState {
         drawing: QuadTree::Leaf(LeafNode::new()),
         stroke: None,
-        scale: 1.0,
-        x_offset: 0.0,
-        y_offset: 0.0,
+        viewport: Viewport {
         width: 0,
         height: 0,
+        transform: Matrix3::from_scale(1.0)}
     }));
 
     receiver.attach(None, move |action| {
@@ -215,15 +185,11 @@ fn update(action: Action, widgets: &mut Widgets, state: &mut AppState) {
 impl Widgets {
     fn update(&mut self, state: &AppState) {
         let mut render_node = state.drawing.render(
-            state.width,
-            state.height,
-            state.scale,
-            state.x_offset,
-            state.y_offset,
+            &state.viewport,
         );
         if let Some(stroke) = &state.stroke {
-            let stroke_texture = stroke.draw(state.width, state.height);
-            let rect = Rect::new(0.0, 0.0, state.width as f32, state.height as f32);
+            let stroke_texture = stroke.draw(state.viewport.width, state.viewport.height);
+            let rect = Rect::new(0.0, 0.0, state.viewport.width as f32, state.viewport.height as f32);
             let texture_node = TextureNode::new(&stroke_texture, &rect);
             render_node = ContainerNode::new(&[render_node, texture_node.upcast()]).upcast();
         }
@@ -245,12 +211,12 @@ impl AppState {
             Action::MouseRelease(MouseReleaseAction { x, y }) => {
                 let mut stroke = self.stroke.take().unwrap();
                 stroke.add(x, y);
-                self.drawing.push(stroke);
+                self.drawing.push(stroke, &self.viewport);
                 self.stroke = None;
             }
             Action::Allocation(AllocationAction { width, height }) => {
-                self.width = width;
-                self.height = height;
+                self.viewport.width = width;
+                self.viewport.height = height;
             }
         }
     }

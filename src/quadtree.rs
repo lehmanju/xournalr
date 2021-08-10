@@ -1,3 +1,4 @@
+use euclid::{default::Point2D, default::Transform2D};
 use glib::Bytes;
 use gtk::{
     cairo::{Context, Format, ImageSurface, LineCap, LineJoin},
@@ -6,9 +7,21 @@ use gtk::{
 };
 
 #[derive(Clone)]
-pub enum QuadTree {
+pub struct Viewport {
+    pub width: i32,
+    pub height: i32,
+    pub transform: Transform2D<f64>,
+}
+
+#[derive(Clone)]
+pub enum QuadTreeInner {
     Leaf(LeafNode),
     Meta(MetaNode),
+}
+
+pub struct QuadTree {
+    inner: QuadTreeInner,
+    height: u32,
 }
 
 const THRESHOLD: usize = 4;
@@ -16,24 +29,15 @@ const THRESHOLD: usize = 4;
 impl QuadTree {
     pub fn render(
         &self,
-        width: i32,
-        height: i32,
-        scale: f64,
-        x_offset: f64,
-        y_offset: f64,
+        viewport: &Viewport,
     ) -> RenderNode {
-        match self {
-            QuadTree::Leaf(_) => todo!(),
-            QuadTree::Meta(_) => todo!(),
-        }
+        
     }
-    pub fn push(&mut self, stroke: Stroke) {
-        //stroke coordinates are relative to current node
-        //stroke is fully contained in current node
-        //add to elements if total number of elements < threshhold
-        //else split current node
-        //split stroke in 4 equal chunks
-        //add each chunk to the corresponding node
+    pub fn push(&mut self, stroke: Stroke, viewport: &Viewport) {
+        let inverse = viewport.transform.inverse().unwrap();
+        let stroke = stroke.transform(&inverse);
+        let bounding_box = 
+        //split if 
         match self {
             QuadTree::Leaf(leaf) => {
                 leaf.objects.push(stroke);
@@ -61,6 +65,22 @@ impl QuadTree {
             }
         }
     }
+    
+}
+
+impl QuadTreeInner {
+    fn render(
+        &self,
+        viewport: &Viewport,
+    ) -> RenderNode {
+        
+    }
+    /// Push stroke to this Quadtree. Return number splits
+    fn push_transform(&mut self, mut stroke: Stroke, transform: &Transform2D<f64>) -> u32 {
+        let inverse = transform.inverse().unwrap();
+        let stroke = stroke.transform(&inverse);
+        
+    }
 }
 
 #[derive(Clone)]
@@ -84,8 +104,8 @@ impl MetaNode {
         // merge if all children leaf and size < THRESHOLD -1
 
         match self.top_left.as_ref() {
-            QuadTree::Leaf(leaf) => todo!(),
-            QuadTree::Meta(meta) => todo!(),
+            QuadTree::Leaf(_leaf) => todo!(),
+            QuadTree::Meta(_meta) => todo!(),
         }
         todo!()
     }
@@ -109,7 +129,7 @@ pub struct LeafNode {
 
 #[derive(Debug, Clone)]
 pub struct Stroke {
-    points: Vec<(f64, f64)>,
+    points: Vec<Point2D<f64>>,
 }
 
 #[derive(PartialEq, Eq, Clone, Copy)]
@@ -121,10 +141,10 @@ pub enum Quadrant {
 }
 
 struct QuadrantData {
-    tl: Vec<(f64, f64)>,
-    tr: Vec<(f64, f64)>,
-    bl: Vec<(f64, f64)>,
-    br: Vec<(f64, f64)>,
+    tl: Vec<Point2D<f64>>,
+    tr: Vec<Point2D<f64>>,
+    bl: Vec<Point2D<f64>>,
+    br: Vec<Point2D<f64>>,
 }
 
 struct QuadLeafs {
@@ -143,20 +163,14 @@ impl QuadLeafs {
             Quadrant::BottomRight => &mut self.br,
         }
     }
-    fn add_stroke(&mut self, data: QuadrantData) {}
+    fn add_stroke(&mut self, _data: QuadrantData) {}
     fn new() -> Self {
         todo!()
     }
 }
 
-impl Into<Stroke> for Vec<(f64, f64)> {
-    fn into(self) -> Stroke {
-        Stroke { points: self }
-    }
-}
-
 impl QuadrantData {
-    fn quadrant(&mut self, selector: Quadrant) -> &mut Vec<(f64, f64)> {
+    fn quadrant(&mut self, selector: Quadrant) -> &mut Vec<Point2D<f64>> {
         match selector {
             Quadrant::TopLeft => &mut self.tl,
             Quadrant::TopRight => &mut self.tr,
@@ -183,78 +197,78 @@ impl Stroke {
         let iterator = self.points.iter();
 
         // size greater 0 => first element exists
-        let mut last_point: Option<(f64, f64)> = None;
+        let mut last_point: Option<Point2D<f64>> = None;
         let mut last_quadrant = None;
 
-        for (px, py) in iterator {
-            let (current_quadrant, cx, cy) = if *px <= 64f64 && *py <= 64f64 {
-                data.quadrant(Quadrant::TopLeft).push((*px, *py));
-                (Quadrant::TopLeft, *px, *py)
-            } else if *px <= 64f64 && *py >= 64f64 {
-                data.quadrant(Quadrant::BottomLeft).push((*px, *py - 64f64));
-                (Quadrant::BottomLeft, *px, *py - 64f64)
-            } else if *px >= 64f64 && *py <= 64f64 {
-                data.quadrant(Quadrant::TopRight).push((*px - 64f64, *py));
-                (Quadrant::TopRight, *px - 64f64, *py)
+        for point in iterator {
+            let (current_quadrant, cx, cy) = if point.x <= 64f64 && point.y <= 64f64 {
+                data.quadrant(Quadrant::TopLeft).push((point.x, point.y).into());
+                (Quadrant::TopLeft, point.x, point.y)
+            } else if point.x <= 64f64 && point.y >= 64f64 {
+                data.quadrant(Quadrant::BottomLeft).push((point.x, point.y - 64f64).into());
+                (Quadrant::BottomLeft, point.x, point.y - 64f64)
+            } else if point.x >= 64f64 && point.y <= 64f64 {
+                data.quadrant(Quadrant::TopRight).push((point.x - 64f64, point.y).into());
+                (Quadrant::TopRight, point.x - 64f64, point.y)
             } else {
-                (Quadrant::BottomRight, *px - 64f64, *py - 64f64)
+                (Quadrant::BottomRight, point.x - 64f64, point.y - 64f64)
             };
-            if let Some((lx, ly)) = last_point {
+            if let Some(last_point) = last_point {
                 let last_quadrant = last_quadrant.unwrap();
                 if last_quadrant != current_quadrant {
                     if (last_quadrant == Quadrant::TopLeft || last_quadrant == Quadrant::TopRight) //top down
                         && (current_quadrant == Quadrant::BottomLeft
                             || current_quadrant == Quadrant::BottomRight)
                     {
-                        let distance_top = 64f64 - ly;
+                        let distance_top = 64f64 - last_point.y;
                         let distance_bottom = cy;
-                        let distance_x = (lx - cx).abs();
-                        let small_x = lx.min(cx);
+                        let distance_x = (last_point.x - cx).abs();
+                        let small_x = last_point.x.min(cx);
                         let x =
                             distance_x * distance_top / (distance_top + distance_bottom) + small_x;
-                        data.quadrant(last_quadrant).push((x, 64f64));
-                        data.quadrant(current_quadrant).push((x, 0f64));
+                        data.quadrant(last_quadrant).push((x, 64f64).into());
+                        data.quadrant(current_quadrant).push((x, 0f64).into());
                     } else if (current_quadrant == Quadrant::TopLeft //bottom up
                         || current_quadrant == Quadrant::TopRight)
                         && (last_quadrant == Quadrant::BottomLeft
                             || last_quadrant == Quadrant::BottomRight)
                     {
-                        let distance_bottom = 64f64 - ly;
+                        let distance_bottom = 64f64 - last_point.y;
                         let distance_top = cy;
-                        let distance_x = (lx - cx).abs();
-                        let small_x = lx.min(cx);
+                        let distance_x = (last_point.x - cx).abs();
+                        let small_x = last_point.x.min(cx);
                         let x =
                             distance_x * distance_top / (distance_top + distance_bottom) + small_x;
-                        data.quadrant(current_quadrant).push((x, 64f64));
-                        data.quadrant(last_quadrant).push((x, 0f64));
+                        data.quadrant(current_quadrant).push((x, 64f64).into());
+                        data.quadrant(last_quadrant).push((x, 0f64).into());
                     } else if (last_quadrant == Quadrant::TopLeft //left right
                         || last_quadrant == Quadrant::BottomLeft)
                         && (current_quadrant == Quadrant::TopRight
                             || current_quadrant == Quadrant::BottomRight)
                     {
-                        let distance_left = 64f64 - lx;
+                        let distance_left = 64f64 - last_point.x;
                         let distance_right = cx;
-                        let distance_y = (ly - cy).abs();
-                        let small_y = ly.min(cy);
+                        let distance_y = (last_point.y - cy).abs();
+                        let small_y = last_point.y.min(cy);
                         let y =
                             distance_y * distance_left / (distance_left + distance_right) + small_y;
-                        data.quadrant(last_quadrant).push((64f64, y));
-                        data.quadrant(current_quadrant).push((64f64, y));
+                        data.quadrant(last_quadrant).push((64f64, y).into());
+                        data.quadrant(current_quadrant).push((64f64, y).into());
                     } else {
                         //right left
-                        let distance_left = 64f64 - lx;
+                        let distance_left = 64f64 - last_point.x;
                         let distance_right = cx;
-                        let distance_y = (ly - cy).abs();
-                        let small_y = ly.min(cy);
+                        let distance_y = (last_point.y - cy).abs();
+                        let small_y = last_point.y.min(cy);
                         let y =
                             distance_y * distance_left / (distance_left + distance_right) + small_y;
-                        data.quadrant(current_quadrant).push((64f64, y));
-                        data.quadrant(last_quadrant).push((64f64, y));
+                        data.quadrant(current_quadrant).push((64f64, y).into());
+                        data.quadrant(last_quadrant).push((64f64, y).into());
                     }
                 }
             }
 
-            last_point = Some((cx, cy));
+            last_point = Some(Point2D::new(cx, cy));
             last_quadrant = Some(current_quadrant);
         }
 
@@ -264,7 +278,7 @@ impl Stroke {
         Self { points: Vec::new() }
     }
     pub fn add(&mut self, x: f64, y: f64) {
-        self.points.push((x, y));
+        self.points.push((x, y).into());
     }
     pub fn draw(&self, width: i32, height: i32) -> MemoryTexture {
         let mut surface = ImageSurface::create(Format::ARgb32, width, height).expect("no surface!");
@@ -275,10 +289,10 @@ impl Stroke {
         cairo_context.set_line_join(LineJoin::Round);
         cairo_context.set_line_cap(LineCap::Round);
         let mut iter = self.points.iter();
-        let (x_start, y_start) = iter.next().unwrap();
-        cairo_context.move_to(*x_start, *y_start);
-        for (x, y) in iter {
-            cairo_context.line_to(*x, *y);
+        let point = iter.next().unwrap();
+        cairo_context.move_to(point.x, point.y);
+        for point in iter {
+            cairo_context.line_to(point.x, point.y);
         }
         cairo_context.stroke().unwrap();
         drop(cairo_context);
@@ -288,25 +302,12 @@ impl Stroke {
         let data = Bytes::from(bytes);
         MemoryTexture::new(width, height, MemoryFormat::A8r8g8b8, &data, stride)
     }
-}
-
-struct Rectangle {
-    x: f64,
-    y: f64,
-    width: f64,
-    height: f64,
-}
-
-mod test {
-    use crate::quadtree::{LeafNode, QuadTree, Stroke};
-
-    #[test]
-    fn add_stroke() {
-        //quadtree size = 128
-        let stroke = Stroke {
-            points: vec![(0.0, 0.0), (1.1, 1.1), (87.2, 22.3)],
-        };
-        let mut tree = LeafNode::new();
-        //tree.push(stroke);
+    pub fn transform(mut self, transform: &Transform2D<f64>) -> Self {
+        for point in self.points {
+            let point = Point2D::new(point.x,point.y);
+            let new_point = transform.transform_point(point);
+            point = new_point;
+        }
+        self
     }
 }
