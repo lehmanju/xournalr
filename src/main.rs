@@ -1,25 +1,27 @@
+use euclid::default::{Transform2D, Translation2D};
+use geo_types::LineString;
+use gtk::gdk::ffi::{GDK_AXIS_X, GDK_AXIS_Y};
+use gtk::glib;
+use gtk::glib::MainContext;
+use gtk::glib::PRIORITY_DEFAULT;
+use gtk::graphene::Rect;
+use gtk::gsk::{CairoNode, ContainerNode, IsRenderNode, RenderNode, TextureNode};
+use gtk::prelude::*;
+use gtk::Application;
+use gtk::ApplicationWindow;
+use gtk::EventSequenceState;
 use std::cell::RefCell;
 use std::num::NonZeroUsize;
 use std::rc::Rc;
-use cgmath::Matrix3;
-use gtk::gdk::ffi::{GDK_AXIS_X, GDK_AXIS_Y};
-use gtk::glib::MainContext;
-use gtk::glib::PRIORITY_DEFAULT;
-use gtk::graphene::{Rect};
-use gtk::EventSequenceState;
-use gtk::{glib};
-use gtk::gsk::{ContainerNode, IsRenderNode, RenderNode, TextureNode};
-use gtk::prelude::*;
-use gtk::ApplicationWindow;
-use gtk::Application;
 
-use quadtree::{LeafNode, QuadTree, Stroke, Viewport};
+use quadtree::{Document, Stroke, Viewport};
 
 mod custom_widget;
 mod quadtree;
 use custom_widget::MainWidget;
 
 use ring_channel::*;
+use rstar::RTree;
 
 static GLIB_LOGGER: glib::GlibLogger = glib::GlibLogger::new(
     glib::GlibLoggerFormat::Plain,
@@ -79,9 +81,9 @@ struct Widgets {
 #[derive(Clone)]
 struct AppState {
     /// document
-    drawing: QuadTree,
+    drawing: RTree<LineString<f64>>,
     /// currently drawn stroke
-    stroke: Option<Stroke>,
+    stroke: Option<LineString<f64>>,
     viewport: Viewport,
 }
 
@@ -143,14 +145,22 @@ fn build_ui(app: &Application) {
     let sender_gesture_motion = sender.clone();
     gesture.connect_drag_update(move |gesture, x, y| {
         gesture.set_state(EventSequenceState::Claimed);
+        let (start_x, start_y) = gesture.start_point().unwrap();
         sender_gesture_motion
-            .send(Action::MouseMotion(MouseMotionAction { x, y }))
+            .send(Action::MouseMotion(MouseMotionAction {
+                x: x + start_x,
+                y: y + start_y,
+            }))
             .unwrap();
     });
     let sender_gesture_up = sender;
-    gesture.connect_drag_end(move |_gesture, x, y| {
+    gesture.connect_drag_end(move |gesture, x, y| {
+        let (start_x, start_y) = gesture.start_point().unwrap();
         sender_gesture_up
-            .send(Action::MouseRelease(MouseReleaseAction { x, y }))
+            .send(Action::MouseRelease(MouseReleaseAction {
+                x: x + start_x,
+                y: y + start_y,
+            }))
             .unwrap();
     });
     widget.add_controller(&gesture);
@@ -160,14 +170,16 @@ fn build_ui(app: &Application) {
         pipeline: frame_sender,
     };
     let state = Rc::new(RefCell::new(AppState {
-        drawing: QuadTree::Leaf(LeafNode::new()),
+        drawing: RTree::new(),
         stroke: None,
         viewport: Viewport {
-        width: 0,
-        height: 0,
-        transform: Matrix3::from_scale(1.0)}
+            width: 0,
+            height: 0,
+            transform: Transform2D::identity(),
+            translate: Translation2D::identity(),
+        },
     }));
-
+    widgets.update(&state.borrow());
     receiver.attach(None, move |action| {
         update(action, &mut widgets, &mut state.borrow_mut());
         Continue(true)
@@ -184,16 +196,20 @@ fn update(action: Action, widgets: &mut Widgets, state: &mut AppState) {
 
 impl Widgets {
     fn update(&mut self, state: &AppState) {
-        let mut render_node = state.drawing.render(
-            &state.viewport,
-        );
+        let mut render_node = state.drawing.render(&state.viewport);
         if let Some(stroke) = &state.stroke {
-            let stroke_texture = stroke.draw(state.viewport.width, state.viewport.height);
-            let rect = Rect::new(0.0, 0.0, state.viewport.width as f32, state.viewport.height as f32);
-            let texture_node = TextureNode::new(&stroke_texture, &rect);
-            render_node = ContainerNode::new(&[render_node, texture_node.upcast()]).upcast();
+            let rect = Rect::new(
+                0.0,
+                0.0,
+                state.viewport.width as f32,
+                state.viewport.height as f32,
+            );
+            let cairo_node = CairoNode::new(&rect);
+            let cairo_context = cairo_node.draw_context().unwrap();
+            stroke.draw(&cairo_context);
+            render_node = ContainerNode::new(&[render_node, cairo_node.upcast()]).upcast();
         }
-        self.pipeline.send(render_node);
+        self.pipeline.send(render_node).unwrap();
         self.widget.queue_draw();
     }
 }
@@ -202,7 +218,7 @@ impl AppState {
     fn dispatch(&mut self, action: Action) {
         match action {
             Action::MousePress(MousePressAction { x, y }) => {
-                self.stroke = Some(Stroke::new());
+                self.stroke = Some(LineString(Vec::new()));
                 self.stroke.as_mut().unwrap().add(x, y);
             }
             Action::MouseMotion(MouseMotionAction { x, y }) => {
@@ -211,7 +227,7 @@ impl AppState {
             Action::MouseRelease(MouseReleaseAction { x, y }) => {
                 let mut stroke = self.stroke.take().unwrap();
                 stroke.add(x, y);
-                self.drawing.push(stroke, &self.viewport);
+                self.drawing.add(stroke, &self.viewport);
                 self.stroke = None;
             }
             Action::Allocation(AllocationAction { width, height }) => {

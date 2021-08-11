@@ -10,6 +10,7 @@ use ring_channel::RingReceiver;
 pub struct MainWidget {
     pub size_sender: RefCell<Option<SyncSender<Action>>>,
     pub frame_receiver: RefCell<Option<RingReceiver<RenderNode>>>,
+    last_node: RefCell<Option<RenderNode>>,
 }
 
 #[glib::object_subclass]
@@ -37,10 +38,16 @@ impl WidgetImpl for MainWidget {
     fn snapshot(&self, _: &Self::Type, snapshot: &gtk::Snapshot) {
         match self.frame_receiver.borrow_mut().as_mut() {
             Some(receiver) => {
-                let result = receiver.recv();
+                let result = receiver.try_recv();
                 match result {
-                    Ok(node) => snapshot.append_node(&node),
-                    Err(_) => log::warn!("No render node"),
+                    Ok(node) => {
+                        snapshot.append_node(&node);
+                        *self.last_node.borrow_mut() = Some(node);
+                    }
+                    Err(_) => {
+                        log::warn!("No render node");
+                        snapshot.append_node(self.last_node.borrow().as_ref().unwrap());
+                    }
                 }
             }
             None => log::debug!("Receiver not yet initialized"),
