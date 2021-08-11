@@ -1,7 +1,6 @@
 use euclid::default::{Transform2D, Translation2D};
 use geo_types::LineString;
 use gtk::gdk::ffi::{GDK_AXIS_X, GDK_AXIS_Y};
-use gtk::glib;
 use gtk::glib::MainContext;
 use gtk::glib::PRIORITY_DEFAULT;
 use gtk::graphene::Rect;
@@ -10,6 +9,7 @@ use gtk::prelude::*;
 use gtk::Application;
 use gtk::ApplicationWindow;
 use gtk::EventSequenceState;
+use gtk::{glib, EventControllerScroll, EventControllerScrollFlags, Inhibit};
 use std::cell::RefCell;
 use std::num::NonZeroUsize;
 use std::rc::Rc;
@@ -43,6 +43,7 @@ pub enum Action {
     MouseMotion(MouseMotionAction),
     MouseRelease(MouseReleaseAction),
     Allocation(AllocationAction),
+    Scroll(ScrollEvent),
 }
 
 #[derive(Clone, Copy)]
@@ -52,7 +53,6 @@ pub struct AllocationAction {
 }
 
 #[derive(Clone, Copy)]
-
 pub struct MousePressAction {
     x: f64,
     y: f64,
@@ -66,10 +66,15 @@ pub struct MouseMotionAction {
 }
 
 #[derive(Clone, Copy)]
-
 pub struct MouseReleaseAction {
     x: f64,
     y: f64,
+}
+
+#[derive(Clone, Copy)]
+pub struct ScrollEvent {
+    dx: f64,
+    dy: f64,
 }
 
 #[derive(Clone)]
@@ -99,7 +104,7 @@ fn build_ui(app: &Application) {
     widget.set_size_channel(sender.clone());
 
     // render 3 frames in advance
-    let (frame_sender, frame_receiver) = ring_channel(NonZeroUsize::new(3).unwrap());
+    let (frame_sender, frame_receiver) = ring_channel(NonZeroUsize::new(1).unwrap());
     widget.set_render_channel(frame_receiver);
 
     let gesture = gtk::GestureStylus::new();
@@ -153,7 +158,7 @@ fn build_ui(app: &Application) {
             }))
             .unwrap();
     });
-    let sender_gesture_up = sender;
+    let sender_gesture_up = sender.clone();
     gesture.connect_drag_end(move |gesture, x, y| {
         let (start_x, start_y) = gesture.start_point().unwrap();
         sender_gesture_up
@@ -164,6 +169,16 @@ fn build_ui(app: &Application) {
             .unwrap();
     });
     widget.add_controller(&gesture);
+
+    let scroll_controller = EventControllerScroll::new(EventControllerScrollFlags::BOTH_AXES);
+    let sender_scroll = sender;
+    scroll_controller.connect_scroll(move |_, dx, dy| {
+        sender_scroll
+            .send(Action::Scroll(ScrollEvent { dx, dy }))
+            .unwrap();
+        Inhibit(false)
+    });
+    widget.add_controller(&scroll_controller);
 
     let mut widgets = Widgets {
         widget: widget.clone(),
@@ -233,6 +248,10 @@ impl AppState {
             Action::Allocation(AllocationAction { width, height }) => {
                 self.viewport.width = width;
                 self.viewport.height = height;
+            }
+            Action::Scroll(ScrollEvent { dx, dy }) => {
+                self.viewport.translate.x += dx;
+                self.viewport.translate.y += dy;
             }
         }
     }

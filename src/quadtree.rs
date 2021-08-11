@@ -28,7 +28,8 @@ impl Document for RTree<LineString<f64>> {
     fn add(&mut self, stroke: LineString<f64>, viewport: &Viewport) {
         let inverse_transform = viewport.transform.inverse().unwrap();
         let normalized_stroke = stroke.transform(&inverse_transform);
-        self.insert(normalized_stroke);
+        let translated = normalized_stroke.transform(&viewport.translate);
+        self.insert(translated);
     }
 
     fn render(&self, viewport: &Viewport) -> RenderNode {
@@ -38,7 +39,7 @@ impl Document for RTree<LineString<f64>> {
         let lower_t = lower;
         let upper_t = inverse_transform.transform_point(upper);
         let envelope = AABB::from_corners(point2d_to_point(lower_t), point2d_to_point(upper_t));
-        let items = self.locate_in_envelope(&envelope);
+        let items = self.locate_in_envelope_intersecting(&envelope);
         let rect = Rect::new(0.0, 0.0, viewport.width as f32, viewport.height as f32);
         let cairo_node = CairoNode::new(&rect);
         let cairo_context = cairo_node.draw_context().unwrap();
