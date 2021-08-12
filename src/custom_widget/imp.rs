@@ -1,6 +1,7 @@
 use std::cell::RefCell;
 
-use crate::{Action, AllocationAction};
+use crate::logic::AllocationAction;
+use crate::Action;
 use gtk::glib::{self, SyncSender};
 use gtk::gsk::RenderNode;
 use gtk::subclass::prelude::*;
@@ -45,7 +46,6 @@ impl WidgetImpl for MainWidget {
                         *self.last_node.borrow_mut() = Some(node);
                     }
                     Err(_) => {
-                        log::warn!("No render node");
                         snapshot.append_node(self.last_node.borrow().as_ref().unwrap());
                     }
                 }

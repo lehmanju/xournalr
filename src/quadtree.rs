@@ -89,7 +89,7 @@ impl Stroke for LineString<f64> {
     }
 }
 
-trait Transformer {
+pub trait Transformer {
     fn transform_point(&self, point: Point2D<f64>) -> Point2D<f64>;
 }
 

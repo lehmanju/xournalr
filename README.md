@@ -1,8 +1,10 @@
 # Tasks
 
-- [ ] split top level quadtree node
-- [ ] render leaf nodes
-- [x] render overlay stroke
-- [x] build rendernode and submit
-- [ ] push new stroke
-- [ ] use lyon_geom and euclid
+- [ ] Implement zooming
+- [ ] File loading/storing
+- [ ] Additional widgets
+- [ ] Rendering in separate thread
+- [ ] Multiple layers
+- [ ] Pressure sensitivity
+- [ ] PDF/Images
+- [ ] Dynamic content (videos/animations)

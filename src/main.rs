@@ -1,22 +1,23 @@
 use euclid::default::{Transform2D, Translation2D};
-use geo_types::LineString;
 use gtk::gdk::ffi::{GDK_AXIS_X, GDK_AXIS_Y};
 use gtk::glib::MainContext;
 use gtk::glib::PRIORITY_DEFAULT;
-use gtk::graphene::Rect;
-use gtk::gsk::{CairoNode, ContainerNode, IsRenderNode, RenderNode, TextureNode};
 use gtk::prelude::*;
 use gtk::Application;
 use gtk::ApplicationWindow;
 use gtk::EventSequenceState;
 use gtk::{glib, EventControllerScroll, EventControllerScrollFlags, Inhibit};
+use logic::{
+    Action, AppState, MouseMotionAction, MousePressAction, MouseReleaseAction, ScrollEvent, Widgets,
+};
 use std::cell::RefCell;
 use std::num::NonZeroUsize;
 use std::rc::Rc;
 
-use quadtree::{Document, Stroke, Viewport};
+use quadtree::Viewport;
 
 mod custom_widget;
+mod logic;
 mod quadtree;
 use custom_widget::MainWidget;
 
@@ -29,67 +30,12 @@ static GLIB_LOGGER: glib::GlibLogger = glib::GlibLogger::new(
 );
 
 fn main() {
-    log::set_logger(&GLIB_LOGGER);
+    log::set_logger(&GLIB_LOGGER).unwrap();
     log::set_max_level(log::LevelFilter::Debug);
     let app = Application::new(Some("org.xournalpp.xournalr"), Default::default());
     app.connect_activate(build_ui);
 
     app.run();
-}
-
-#[derive(Clone, Copy)]
-pub enum Action {
-    MousePress(MousePressAction),
-    MouseMotion(MouseMotionAction),
-    MouseRelease(MouseReleaseAction),
-    Allocation(AllocationAction),
-    Scroll(ScrollEvent),
-}
-
-#[derive(Clone, Copy)]
-pub struct AllocationAction {
-    width: i32,
-    height: i32,
-}
-
-#[derive(Clone, Copy)]
-pub struct MousePressAction {
-    x: f64,
-    y: f64,
-}
-
-#[derive(Clone, Copy)]
-
-pub struct MouseMotionAction {
-    x: f64,
-    y: f64,
-}
-
-#[derive(Clone, Copy)]
-pub struct MouseReleaseAction {
-    x: f64,
-    y: f64,
-}
-
-#[derive(Clone, Copy)]
-pub struct ScrollEvent {
-    dx: f64,
-    dy: f64,
-}
-
-#[derive(Clone)]
-struct Widgets {
-    widget: MainWidget,
-    pipeline: RingSender<RenderNode>,
-}
-
-#[derive(Clone)]
-struct AppState {
-    /// document
-    drawing: RTree<LineString<f64>>,
-    /// currently drawn stroke
-    stroke: Option<LineString<f64>>,
-    viewport: Viewport,
 }
 
 fn build_ui(app: &Application) {
@@ -207,52 +153,4 @@ fn build_ui(app: &Application) {
 fn update(action: Action, widgets: &mut Widgets, state: &mut AppState) {
     state.dispatch(action);
     widgets.update(state);
-}
-
-impl Widgets {
-    fn update(&mut self, state: &AppState) {
-        let mut render_node = state.drawing.render(&state.viewport);
-        if let Some(stroke) = &state.stroke {
-            let rect = Rect::new(
-                0.0,
-                0.0,
-                state.viewport.width as f32,
-                state.viewport.height as f32,
-            );
-            let cairo_node = CairoNode::new(&rect);
-            let cairo_context = cairo_node.draw_context().unwrap();
-            stroke.draw(&cairo_context);
-            render_node = ContainerNode::new(&[render_node, cairo_node.upcast()]).upcast();
-        }
-        self.pipeline.send(render_node).unwrap();
-        self.widget.queue_draw();
-    }
-}
-
-impl AppState {
-    fn dispatch(&mut self, action: Action) {
-        match action {
-            Action::MousePress(MousePressAction { x, y }) => {
-                self.stroke = Some(LineString(Vec::new()));
-                self.stroke.as_mut().unwrap().add(x, y);
-            }
-            Action::MouseMotion(MouseMotionAction { x, y }) => {
-                self.stroke.as_mut().unwrap().add(x, y);
-            }
-            Action::MouseRelease(MouseReleaseAction { x, y }) => {
-                let mut stroke = self.stroke.take().unwrap();
-                stroke.add(x, y);
-                self.drawing.add(stroke, &self.viewport);
-                self.stroke = None;
-            }
-            Action::Allocation(AllocationAction { width, height }) => {
-                self.viewport.width = width;
-                self.viewport.height = height;
-            }
-            Action::Scroll(ScrollEvent { dx, dy }) => {
-                self.viewport.translate.x += dx;
-                self.viewport.translate.y += dy;
-            }
-        }
-    }
 }
