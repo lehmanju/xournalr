@@ -8,3 +8,4 @@
 - [ ] Pressure sensitivity
 - [ ] PDF/Images
 - [ ] Dynamic content (videos/animations)
+- [ ] Tools

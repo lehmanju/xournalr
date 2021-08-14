@@ -1,12 +1,16 @@
 use euclid::default::{Transform2D, Translation2D};
-use gtk::gdk::ffi::{GDK_AXIS_X, GDK_AXIS_Y};
+use glib::VariantTy;
+use gtk::gdk::ffi::{GDK_AXIS_X, GDK_AXIS_Y, GDK_BUTTON_SECONDARY};
+use gtk::gdk::{Rectangle, BUTTON_SECONDARY};
+use gtk::gio::{Menu, SimpleAction};
 use gtk::glib::MainContext;
 use gtk::glib::PRIORITY_DEFAULT;
-use gtk::prelude::*;
+use gtk::graphene::Rect;
 use gtk::Application;
 use gtk::ApplicationWindow;
 use gtk::EventSequenceState;
 use gtk::{glib, EventControllerScroll, EventControllerScrollFlags, Inhibit};
+use gtk::{prelude::*, GestureClick, Orientation, PopoverMenu, PopoverMenuFlags, PositionType};
 use logic::{
     Action, AppState, MouseMotionAction, MousePressAction, MouseReleaseAction, ScrollEvent, Widgets,
 };
@@ -48,6 +52,32 @@ fn build_ui(app: &Application) {
 
     let (sender, receiver) = MainContext::sync_channel::<Action>(PRIORITY_DEFAULT, 10);
     widget.set_size_channel(sender.clone());
+
+    let tool_action = SimpleAction::new_stateful(
+        "tool",
+        Some(&String::static_variant_type()),
+        &"pen".to_variant(),
+    );
+    tool_action.set_enabled(true);
+    let tool_action_sender = sender.clone();
+    tool_action.connect_activate(move |action, state| {
+        let state = state.unwrap();
+        action.set_state(state);
+        if state.to_string() == "pen" {
+            tool_action_sender.send(Action::ToolPen).unwrap();
+        } else if state.to_string() == "eraser" {
+            tool_action_sender.send(Action::ToolEraser).unwrap();
+        }
+    });
+    app.add_action(&tool_action);
+
+    let menu = Menu::new();
+    menu.append(Some("Pen"), Some("app.tool::pen"));
+    menu.append(Some("Eraser"), Some("app.tool::eraser"));
+    menu.append(Some("Hand"), Some("app.tool::hand"));
+    let popover_menu = PopoverMenu::from_model_full(&menu, PopoverMenuFlags::empty());
+    popover_menu.set_position(PositionType::Left);
+    widget.set_popover_menu(&popover_menu);
 
     // render 3 frames in advance
     let (frame_sender, frame_receiver) = ring_channel(NonZeroUsize::new(1).unwrap());
@@ -95,7 +125,7 @@ fn build_ui(app: &Application) {
     });
     let sender_gesture_motion = sender.clone();
     gesture.connect_drag_update(move |gesture, x, y| {
-        gesture.set_state(EventSequenceState::Claimed);
+        //gesture.set_state(EventSequenceState::Claimed);
         let (start_x, start_y) = gesture.start_point().unwrap();
         sender_gesture_motion
             .send(Action::MouseMotion(MouseMotionAction {
@@ -126,6 +156,20 @@ fn build_ui(app: &Application) {
     });
     widget.add_controller(&scroll_controller);
 
+    let click_controller = GestureClick::new();
+    click_controller.set_button(BUTTON_SECONDARY);
+    click_controller.connect_pressed(move |_, _, x, y| {
+        let rect = Rectangle {
+            x: x as i32,
+            y: y as i32,
+            width: 1,
+            height: 1,
+        };
+        popover_menu.set_pointing_to(&rect);
+        popover_menu.popup();
+    });
+    widget.add_controller(&click_controller);
+
     let mut widgets = Widgets {
         widget: widget.clone(),
         pipeline: frame_sender,
@@ -137,7 +181,6 @@ fn build_ui(app: &Application) {
             width: 0,
             height: 0,
             transform: Transform2D::identity(),
-            translate: Translation2D::identity(),
         },
     }));
     widgets.update(&state.borrow());

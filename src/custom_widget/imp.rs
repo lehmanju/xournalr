@@ -2,9 +2,12 @@ use std::cell::RefCell;
 
 use crate::logic::AllocationAction;
 use crate::Action;
+use glib::Cast;
 use gtk::glib::{self, SyncSender};
 use gtk::gsk::RenderNode;
+use gtk::prelude::{PopoverExt, WidgetExt};
 use gtk::subclass::prelude::*;
+use gtk::{PopoverMenu, Widget};
 use ring_channel::RingReceiver;
 
 #[derive(Default)]
@@ -12,6 +15,7 @@ pub struct MainWidget {
     pub size_sender: RefCell<Option<SyncSender<Action>>>,
     pub frame_receiver: RefCell<Option<RingReceiver<RenderNode>>>,
     last_node: RefCell<Option<RenderNode>>,
+    pub popover: RefCell<Option<PopoverMenu>>,
 }
 
 #[glib::object_subclass]
@@ -34,6 +38,9 @@ impl WidgetImpl for MainWidget {
                 }
             }
             None => log::debug!("Sender not yet initialized"),
+        }
+        if let Some(popover) = self.popover.borrow().as_ref() {
+            popover.present();
         }
     }
     fn snapshot(&self, _: &Self::Type, snapshot: &gtk::Snapshot) {

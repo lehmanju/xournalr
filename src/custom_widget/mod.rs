@@ -1,7 +1,7 @@
 mod imp;
 
 use glib::SyncSender;
-use gtk::{gsk::RenderNode, subclass::prelude::ObjectSubclassExt};
+use gtk::{gsk::RenderNode, prelude::WidgetExt, subclass::prelude::ObjectSubclassExt, PopoverMenu};
 use ring_channel::RingReceiver;
 
 use crate::Action;
@@ -27,5 +27,10 @@ impl MainWidget {
     pub fn set_size_channel(&self, sender: SyncSender<Action>) {
         let self_ = imp::MainWidget::from_instance(self);
         *self_.size_sender.borrow_mut() = Some(sender);
+    }
+    pub fn set_popover_menu(&self, popover: &PopoverMenu) {
+        popover.set_parent(self);
+        let self_ = imp::MainWidget::from_instance(self);
+        *self_.popover.borrow_mut() = Some(popover.clone());
     }
 }
