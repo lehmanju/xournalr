@@ -1,5 +1,6 @@
 use euclid::default::{Transform2D, Translation2D};
 use gtk::gdk::ffi::{GDK_AXIS_X, GDK_AXIS_Y};
+use gtk::gdk::BUTTON_MIDDLE;
 use gtk::glib::MainContext;
 use gtk::glib::PRIORITY_DEFAULT;
 use gtk::prelude::*;
@@ -93,6 +94,7 @@ fn build_ui(app: &Application) {
             .send(Action::MousePress(MousePressAction { x, y }))
             .unwrap();
     });
+
     let sender_gesture_motion = sender.clone();
     gesture.connect_drag_update(move |gesture, x, y| {
         gesture.set_state(EventSequenceState::Claimed);
@@ -113,6 +115,28 @@ fn build_ui(app: &Application) {
                 y: y + start_y,
             }))
             .unwrap();
+    });
+
+    widget.add_controller(&gesture);
+
+    let gesture = gtk::GestureDrag::new();
+    gesture.set_button(BUTTON_MIDDLE);
+
+    let sender_gesture_up = sender.clone();
+    gesture.connect_drag_begin(move |_gesture, _x, _y| {
+        sender_gesture_up.send(Action::ScrollStart).unwrap();
+    });
+
+    let sender_gesture_motion = sender.clone();
+    gesture.connect_drag_update(move |gesture, x, y| {
+        gesture.set_state(EventSequenceState::Claimed);
+        sender_gesture_motion
+            .send(Action::Scroll(ScrollEvent { dx: -x, dy: -y }))
+            .unwrap();
+    });
+    let sender_gesture_end = sender.clone();
+    gesture.connect_drag_end(move |_gesture, _x, _y| {
+        sender_gesture_end.send(Action::ScrollEnd).unwrap();
     });
     widget.add_controller(&gesture);
 
@@ -139,6 +163,7 @@ fn build_ui(app: &Application) {
             transform: Transform2D::identity(),
             translate: Translation2D::identity(),
         },
+        scroll_state: None,
     }));
     widgets.update(&state.borrow());
     receiver.attach(None, move |action| {

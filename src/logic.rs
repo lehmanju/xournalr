@@ -3,6 +3,7 @@ use gtk::{
     graphene::Rect,
     gsk::{CairoNode, ContainerNode, IsRenderNode, RenderNode},
     prelude::WidgetExt,
+    subclass::scrollable,
 };
 use ring_channel::RingSender;
 use rstar::RTree;
@@ -17,6 +18,8 @@ pub enum Action {
     MouseRelease(MouseReleaseAction),
     Allocation(AllocationAction),
     Scroll(ScrollEvent),
+    ScrollStart,
+    ScrollEnd,
 }
 
 #[derive(Clone, Copy)]
@@ -56,6 +59,12 @@ pub struct Widgets {
     pub pipeline: RingSender<RenderNode>,
 }
 
+#[derive(Clone, Default)]
+pub struct ScrollState {
+    pub x_old: f64,
+    pub y_old: f64,
+}
+
 #[derive(Clone)]
 pub struct AppState {
     /// document
@@ -63,6 +72,7 @@ pub struct AppState {
     /// currently drawn stroke
     pub stroke: Option<LineString<f64>>,
     pub viewport: Viewport,
+    pub scroll_state: Option<ScrollState>,
 }
 
 impl Widgets {
@@ -105,9 +115,26 @@ impl AppState {
                 self.viewport.width = width;
                 self.viewport.height = height;
             }
+            Action::ScrollStart => {
+                self.scroll_state = Some(ScrollState::default());
+            }
             Action::Scroll(ScrollEvent { dx, dy }) => {
-                self.viewport.translate.x += dx * 10.0;
-                self.viewport.translate.y += dy * 10.0;
+                let ddx;
+                let ddy;
+                if let Some(state) = &mut self.scroll_state {
+                    ddx = dx - state.x_old;
+                    ddy = dy - state.y_old;
+                    state.x_old = dx;
+                    state.y_old = dy;
+                } else {
+                    ddx = dx;
+                    ddy = dy;
+                }
+                self.viewport.translate.x += ddx;
+                self.viewport.translate.y += ddy;
+            }
+            Action::ScrollEnd => {
+                self.scroll_state = None;
             }
         }
     }
