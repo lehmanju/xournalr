@@ -5,13 +5,14 @@ use gtk::gdk::{Rectangle, BUTTON_SECONDARY};
 use gtk::gio::{Menu, SimpleAction};
 use gtk::glib::MainContext;
 use gtk::glib::PRIORITY_DEFAULT;
-use gtk::Application;
 use gtk::ApplicationWindow;
 use gtk::EventSequenceState;
 use gtk::{glib, EventControllerScroll, EventControllerScrollFlags, Inhibit};
 use gtk::{prelude::*, GestureClick, PopoverMenu, PopoverMenuFlags, PositionType};
+use gtk::{Application, EventControllerMotion};
 use logic::{
-    Action, AppState, MouseMotionAction, MousePressAction, MouseReleaseAction, ScrollEvent, Widgets,
+    Action, AppState, MotionEvent, MouseMotionAction, MousePressAction, MouseReleaseAction,
+    ScrollEvent, Widgets, ZoomEvent,
 };
 use std::cell::RefCell;
 use std::num::NonZeroUsize;
@@ -169,14 +170,23 @@ fn build_ui(app: &Application) {
     widget.add_controller(&gesture);
 
     let scroll_controller = EventControllerScroll::new(EventControllerScrollFlags::BOTH_AXES);
-    let sender_scroll = sender;
-    scroll_controller.connect_scroll(move |_, dx, dy| {
+    let sender_scroll = sender.clone();
+    scroll_controller.connect_scroll(move |_, _dx, dy| {
         sender_scroll
-            .send(Action::Scroll(ScrollEvent { dx: -dx, dy: -dy }))
+            .send(Action::Zoom(ZoomEvent { dscale: dy }))
             .unwrap();
         Inhibit(false)
     });
     widget.add_controller(&scroll_controller);
+
+    let motion_controller = EventControllerMotion::new();
+    let sender_motion = sender.clone();
+    motion_controller.connect_motion(move |_, x, y| {
+        sender_motion
+            .send(Action::Motion(MotionEvent { x, y }))
+            .unwrap();
+    });
+    widget.add_controller(&motion_controller);
 
     let click_controller = GestureClick::new();
     click_controller.set_button(BUTTON_SECONDARY);
@@ -205,6 +215,7 @@ fn build_ui(app: &Application) {
             transform: Transform2D::identity(),
         },
         scroll_state: None,
+        pointer_old: None,
     }));
     widgets.update(&state.borrow());
     receiver.attach(None, move |action| {
@@ -213,7 +224,10 @@ fn build_ui(app: &Application) {
     });
 
     window.set_child(Some(&widget));
-    window.present();
+    window.set_default_width(600);
+    window.set_default_height(600);
+    window.set_title(Some("XournalR"));
+    window.show();
 }
 
 fn update(action: Action, widgets: &mut Widgets, state: &mut AppState) {

@@ -16,12 +16,25 @@ pub enum Action {
     MouseMotion(MouseMotionAction),
     MouseRelease(MouseReleaseAction),
     Allocation(AllocationAction),
+    Zoom(ZoomEvent),
     Scroll(ScrollEvent),
+    Motion(MotionEvent),
     ToolPen,
     ToolEraser,
     ToolHand,
     ScrollStart,
     ScrollEnd,
+}
+
+#[derive(Clone, Copy)]
+pub struct MotionEvent {
+    pub x: f64,
+    pub y: f64,
+}
+
+#[derive(Clone, Copy)]
+pub struct ZoomEvent {
+    pub dscale: f64,
 }
 
 #[derive(Clone, Copy)]
@@ -75,6 +88,7 @@ pub struct AppState {
     pub stroke: Option<LineString<f64>>,
     pub viewport: Viewport,
     pub scroll_state: Option<ScrollState>,
+    pub pointer_old: Option<(f64, f64)>,
 }
 
 impl Widgets {
@@ -136,8 +150,8 @@ impl AppState {
                     ddx = dx;
                     ddy = dy;
                 }
-                self.viewport.transform =
-                    self.viewport.transform.then_translate((-ddx, -ddy).into());
+                self.viewport.transform.m31 -= ddx * self.viewport.transform.m11;
+                self.viewport.transform.m32 -= ddy * self.viewport.transform.m11;
             }
             Action::ScrollEnd => {
                 self.scroll_state = None;
@@ -145,6 +159,26 @@ impl AppState {
             Action::ToolPen => todo!(),
             Action::ToolEraser => todo!(),
             Action::ToolHand => todo!(),
+            Action::Zoom(ZoomEvent { dscale }) => {
+                let dscale = dscale / 10f64;
+                let mut dx = 0f64;
+                let mut dy = 0f64;
+                let scale_y = self.viewport.transform.m22 + dscale;
+                let scale_x = self.viewport.transform.m11 + dscale;
+                if let Some((x, y)) = self.pointer_old {
+                    dx = x * dscale;
+                    dy = y * dscale;
+                }
+                if scale_y > 0f64 && scale_x > 0f64 {
+                    self.viewport.transform.m22 = scale_y;
+                    self.viewport.transform.m11 = scale_x;
+                    self.viewport.transform.m31 -= dx;
+                    self.viewport.transform.m32 -= dy;
+                }
+            }
+            Action::Motion(MotionEvent { x, y }) => {
+                self.pointer_old = Some((x, y));
+            }
         }
     }
 }
