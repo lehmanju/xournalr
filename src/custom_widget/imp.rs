@@ -2,12 +2,11 @@ use std::cell::RefCell;
 
 use crate::logic::AllocationAction;
 use crate::Action;
-use glib::Cast;
 use gtk::glib::{self, SyncSender};
 use gtk::gsk::RenderNode;
-use gtk::prelude::{PopoverExt, WidgetExt};
+use gtk::prelude::PopoverExt;
 use gtk::subclass::prelude::*;
-use gtk::{PopoverMenu, Widget};
+use gtk::PopoverMenu;
 use ring_channel::RingReceiver;
 
 #[derive(Default)]

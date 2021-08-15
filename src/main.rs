@@ -1,17 +1,15 @@
-use euclid::default::{Transform2D, Translation2D};
-use glib::VariantTy;
-use gtk::gdk::ffi::{GDK_AXIS_X, GDK_AXIS_Y, GDK_BUTTON_SECONDARY};
+use euclid::default::Transform2D;
+use gtk::gdk::ffi::{GDK_AXIS_X, GDK_AXIS_Y};
 use gtk::gdk::BUTTON_MIDDLE;
 use gtk::gdk::{Rectangle, BUTTON_SECONDARY};
 use gtk::gio::{Menu, SimpleAction};
 use gtk::glib::MainContext;
 use gtk::glib::PRIORITY_DEFAULT;
-use gtk::graphene::Rect;
 use gtk::Application;
 use gtk::ApplicationWindow;
 use gtk::EventSequenceState;
 use gtk::{glib, EventControllerScroll, EventControllerScrollFlags, Inhibit};
-use gtk::{prelude::*, GestureClick, Orientation, PopoverMenu, PopoverMenuFlags, PositionType};
+use gtk::{prelude::*, GestureClick, PopoverMenu, PopoverMenuFlags, PositionType};
 use logic::{
     Action, AppState, MouseMotionAction, MousePressAction, MouseReleaseAction, ScrollEvent, Widgets,
 };
@@ -174,7 +172,7 @@ fn build_ui(app: &Application) {
     let sender_scroll = sender;
     scroll_controller.connect_scroll(move |_, dx, dy| {
         sender_scroll
-            .send(Action::Scroll(ScrollEvent { dx, dy }))
+            .send(Action::Scroll(ScrollEvent { dx: -dx, dy: -dy }))
             .unwrap();
         Inhibit(false)
     });

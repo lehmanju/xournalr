@@ -1,7 +1,4 @@
-use euclid::{
-    default::Point2D,
-    default::{Transform2D, Translation2D},
-};
+use euclid::{default::Point2D, default::Transform2D};
 use geo_types::{LineString, Point};
 use gtk::cairo::LineCap;
 use gtk::{

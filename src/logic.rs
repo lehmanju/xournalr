@@ -1,9 +1,8 @@
 use geo_types::LineString;
 use gtk::{
     graphene::Rect,
-    gsk::{CairoNode, ContainerNode, IsRenderNode, RenderNode},
+    gsk::{CairoNode, IsRenderNode, RenderNode},
     prelude::WidgetExt,
-    subclass::scrollable,
 };
 use ring_channel::RingSender;
 use rstar::RTree;
