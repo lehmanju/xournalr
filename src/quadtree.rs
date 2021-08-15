@@ -128,14 +128,10 @@ impl Viewport {
         self.transform.transform_point(point.into().into()).into()
     }
     fn normalized(&self) -> AABB<Point<f64>> {
-        let inverse_transform = self
+        let lower = self.transform.transform_point(Point2D::new(0.0, 0.0));
+        let upper = self
             .transform
-            .inverse()
-            .unwrap()
-            .then_translate((self.transform.m31, self.transform.m32).into());
-        let lower = inverse_transform.transform_point(Point2D::new(0.0, 0.0));
-        let upper =
-            inverse_transform.transform_point(Point2D::new(self.width as f64, self.height as f64));
+            .transform_point(Point2D::new(self.width as f64, self.height as f64));
         let lower_t: (f64, f64) = lower.into();
         let upper_t: (f64, f64) = upper.into();
         AABB::from_corners(lower_t.into(), upper_t.into())

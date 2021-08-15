@@ -137,7 +137,8 @@ impl AppState {
                     ddx = dx;
                     ddy = dy;
                 }
-                self.viewport.transform = self.viewport.transform.then_translate((-ddx, -ddy).into());
+                self.viewport.transform =
+                    self.viewport.transform.then_translate((-ddx, -ddy).into());
             }
             Action::ScrollEnd => {
                 self.scroll_state = None;

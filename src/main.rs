@@ -1,9 +1,9 @@
 use euclid::default::{Transform2D, Translation2D};
 use glib::VariantTy;
 use gtk::gdk::ffi::{GDK_AXIS_X, GDK_AXIS_Y, GDK_BUTTON_SECONDARY};
+use gtk::gdk::BUTTON_MIDDLE;
 use gtk::gdk::{Rectangle, BUTTON_SECONDARY};
 use gtk::gio::{Menu, SimpleAction};
-use gtk::gdk::BUTTON_MIDDLE;
 use gtk::glib::MainContext;
 use gtk::glib::PRIORITY_DEFAULT;
 use gtk::graphene::Rect;
@@ -161,7 +161,7 @@ fn build_ui(app: &Application) {
     gesture.connect_drag_update(move |gesture, x, y| {
         gesture.set_state(EventSequenceState::Claimed);
         sender_gesture_motion
-            .send(Action::Scroll(ScrollEvent { dx: -x, dy: -y }))
+            .send(Action::Scroll(ScrollEvent { dx: x, dy: y }))
             .unwrap();
     });
     let sender_gesture_end = sender.clone();
