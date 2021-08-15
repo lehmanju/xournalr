@@ -3,6 +3,7 @@ use gtk::{
     graphene::Rect,
     gsk::{CairoNode, ContainerNode, IsRenderNode, RenderNode},
     prelude::WidgetExt,
+    subclass::scrollable,
 };
 use ring_channel::RingSender;
 use rstar::RTree;
@@ -20,6 +21,8 @@ pub enum Action {
     ToolPen,
     ToolEraser,
     ToolHand,
+    ScrollStart,
+    ScrollEnd,
 }
 
 #[derive(Clone, Copy)]
@@ -59,6 +62,12 @@ pub struct Widgets {
     pub pipeline: RingSender<RenderNode>,
 }
 
+#[derive(Clone, Default)]
+pub struct ScrollState {
+    pub x_old: f64,
+    pub y_old: f64,
+}
+
 #[derive(Clone)]
 pub struct AppState {
     /// document
@@ -66,6 +75,7 @@ pub struct AppState {
     /// currently drawn stroke
     pub stroke: Option<LineString<f64>>,
     pub viewport: Viewport,
+    pub scroll_state: Option<ScrollState>,
 }
 
 impl Widgets {
@@ -112,8 +122,25 @@ impl AppState {
                 self.viewport.width = width;
                 self.viewport.height = height;
             }
+            Action::ScrollStart => {
+                self.scroll_state = Some(ScrollState::default());
+            }
             Action::Scroll(ScrollEvent { dx, dy }) => {
-                self.viewport.transform = self.viewport.transform.then_translate((-dx, -dy).into());
+                let ddx;
+                let ddy;
+                if let Some(state) = &mut self.scroll_state {
+                    ddx = dx - state.x_old;
+                    ddy = dy - state.y_old;
+                    state.x_old = dx;
+                    state.y_old = dy;
+                } else {
+                    ddx = dx;
+                    ddy = dy;
+                }
+                self.viewport.transform = self.viewport.transform.then_translate((-ddx, -ddy).into());
+            }
+            Action::ScrollEnd => {
+                self.scroll_state = None;
             }
             Action::ToolPen => todo!(),
             Action::ToolEraser => todo!(),
