@@ -12,7 +12,7 @@ use gtk::{prelude::*, GestureClick, PopoverMenu, PopoverMenuFlags, PositionType}
 use gtk::{Application, EventControllerMotion};
 use logic::{
     Action, AppState, MotionEvent, MouseMotionAction, MousePressAction, MouseReleaseAction,
-    ScrollEvent, Widgets, ZoomEvent,
+    ScrollEvent, Tool, Widgets, ZoomEvent,
 };
 use std::cell::RefCell;
 use std::num::NonZeroUsize;
@@ -62,11 +62,15 @@ fn build_ui(app: &Application) {
     let tool_action_sender = sender.clone();
     tool_action.connect_activate(move |action, state| {
         let state = state.unwrap();
-        action.set_state(state);
-        if state.to_string() == "pen" {
+        if state.to_string() == "'pen'" {
             tool_action_sender.send(Action::ToolPen).unwrap();
-        } else if state.to_string() == "eraser" {
+            action.set_state(state);
+        } else if state.to_string() == "'eraser'" {
             tool_action_sender.send(Action::ToolEraser).unwrap();
+            action.set_state(state);
+        } else if state.to_string() == "'hand'" {
+            tool_action_sender.send(Action::ToolHand).unwrap();
+            action.set_state(state);
         }
     });
     app.add_action(&tool_action);
@@ -216,6 +220,7 @@ fn build_ui(app: &Application) {
         },
         scroll_state: None,
         pointer_old: None,
+        tool: Tool::Pen,
     }));
     widgets.update(&state.borrow());
     receiver.attach(None, move |action| {

@@ -325,7 +325,7 @@ dependencies = [
 [[package]]
 name = "geo-types"
 version = "0.7.2"
-source = "git+https://github.com/lehmanju/geo#78ebbb1503d42a017d790bddabfa8d3c0100ad3e"
+source = "git+https://github.com/lehmanju/geo?branch=custom#3751c7a29e96de36da00bb9289c81df4496b7a8b"
 dependencies = [
  "approx",
  "num-traits",
@@ -769,9 +769,8 @@ dependencies = [
 
 [[package]]
 name = "rstar"
-version = "0.8.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ce61d743ebe516592df4dd542dfe823577b811299f7bee1106feb1bbb993dbac"
+version = "0.9.1"
+source = "git+https://github.com/lehmanju/rstar?branch=selremove#210080ff9e4a6d748f446ac23d306ae6420345fa"
 dependencies = [
  "heapless",
  "num-traits",

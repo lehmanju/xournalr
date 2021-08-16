@@ -11,5 +11,5 @@ glib = { version = "0.14", features = ["log"]}
 log = "0.4"
 ring-channel = "0.8"
 euclid = "0.22"
-rstar = {version = "0.8", features = ["serde"]}
-geo-types = {git = "https://github.com/lehmanju/geo" , features =["use-rstar", "serde"]}
+rstar = {git = "https://github.com/lehmanju/rstar", branch = "selremove", features = ["serde"]}
+geo-types = {git = "https://github.com/lehmanju/geo", branch = "custom", features =["use-rstar", "serde"]}

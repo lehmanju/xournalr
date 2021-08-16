@@ -1,3 +1,4 @@
+use euclid::default::Box2D;
 use geo_types::LineString;
 use gtk::{
     graphene::Rect,
@@ -5,7 +6,7 @@ use gtk::{
     prelude::WidgetExt,
 };
 use ring_channel::RingSender;
-use rstar::RTree;
+use rstar::{RTree, AABB};
 
 use crate::custom_widget::MainWidget;
 use crate::quadtree::{Document, Stroke, Viewport};
@@ -80,6 +81,13 @@ pub struct ScrollState {
     pub y_old: f64,
 }
 
+#[derive(Clone, Copy)]
+pub enum Tool {
+    Pen,
+    Eraser,
+    Hand,
+}
+
 #[derive(Clone)]
 pub struct AppState {
     /// document
@@ -89,6 +97,7 @@ pub struct AppState {
     pub viewport: Viewport,
     pub scroll_state: Option<ScrollState>,
     pub pointer_old: Option<(f64, f64)>,
+    pub tool: Tool,
 }
 
 impl Widgets {
@@ -118,19 +127,58 @@ impl Widgets {
 impl AppState {
     pub fn dispatch(&mut self, action: Action) {
         match action {
-            Action::MousePress(MousePressAction { x, y }) => {
-                self.stroke = Some(LineString(Vec::new()));
-                self.stroke.as_mut().unwrap().add(x, y);
-            }
-            Action::MouseMotion(MouseMotionAction { x, y }) => {
-                self.stroke.as_mut().unwrap().add(x, y);
-            }
-            Action::MouseRelease(MouseReleaseAction { x, y }) => {
-                let mut stroke = self.stroke.take().unwrap();
-                stroke.add(x, y);
-                self.drawing.add(stroke, &self.viewport);
-                self.stroke = None;
-            }
+            Action::MousePress(MousePressAction { x, y }) => match self.tool {
+                Tool::Pen => {
+                    self.stroke = Some(LineString(Vec::new()));
+                    self.stroke.as_mut().unwrap().add(x, y);
+                }
+                Tool::Eraser => {
+                    let lower = self.viewport.normalize_from_viewport((x - 2.0, y - 2.0));
+                    let upper = self.viewport.normalize_from_viewport((x + 2.0, y + 2.0));
+                    let _elements =
+                        self.drawing
+                            .remove_in_envelope_intersecting(&AABB::from_corners(
+                                lower.into(),
+                                upper.into(),
+                            ));
+                }
+                Tool::Hand => todo!(),
+            },
+            Action::MouseMotion(MouseMotionAction { x, y }) => match self.tool {
+                Tool::Pen => {
+                    self.stroke.as_mut().unwrap().add(x, y);
+                }
+                Tool::Eraser => {
+                    let lower = self.viewport.normalize_from_viewport((x - 2.0, y - 2.0));
+                    let upper = self.viewport.normalize_from_viewport((x + 2.0, y + 2.0));
+                    let _elements =
+                        self.drawing
+                            .remove_in_envelope_intersecting(&AABB::from_corners(
+                                lower.into(),
+                                upper.into(),
+                            ));
+                }
+                Tool::Hand => todo!(),
+            },
+            Action::MouseRelease(MouseReleaseAction { x, y }) => match self.tool {
+                Tool::Pen => {
+                    let mut stroke = self.stroke.take().unwrap();
+                    stroke.add(x, y);
+                    self.drawing.add(stroke, &self.viewport);
+                    self.stroke = None;
+                }
+                Tool::Eraser => {
+                    let lower = self.viewport.normalize_from_viewport((x - 2.0, y - 2.0));
+                    let upper = self.viewport.normalize_from_viewport((x + 2.0, y + 2.0));
+                    let _elements =
+                        self.drawing
+                            .remove_in_envelope_intersecting(&AABB::from_corners(
+                                lower.into(),
+                                upper.into(),
+                            ));
+                }
+                Tool::Hand => todo!(),
+            },
             Action::Allocation(AllocationAction { width, height }) => {
                 self.viewport.width = width;
                 self.viewport.height = height;
@@ -156,8 +204,12 @@ impl AppState {
             Action::ScrollEnd => {
                 self.scroll_state = None;
             }
-            Action::ToolPen => todo!(),
-            Action::ToolEraser => todo!(),
+            Action::ToolPen => {
+                self.tool = Tool::Pen;
+            }
+            Action::ToolEraser => {
+                self.tool = Tool::Eraser;
+            }
             Action::ToolHand => todo!(),
             Action::Zoom(ZoomEvent { dscale }) => {
                 let dscale = dscale / 10f64;

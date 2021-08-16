@@ -1,3 +1,4 @@
+use euclid::default::Box2D;
 use euclid::{default::Point2D, default::Transform2D};
 use geo_types::{LineString, Point};
 use gtk::cairo::LineCap;
@@ -25,6 +26,8 @@ pub trait Document {
         &'a mut self,
         viewport: &Viewport,
     ) -> Box<dyn Iterator<Item = &'a mut LineString<f64>> + 'a>;
+    fn remove_elements_in_radius(&mut self, point: (f64, f64), radius: f64)
+        -> Vec<LineString<f64>>;
 }
 
 impl Document for RTree<LineString<f64>> {
@@ -48,17 +51,43 @@ impl Document for RTree<LineString<f64>> {
         Box::new(self.locate_in_envelope_intersecting_mut(&viewport.normalized()))
             as Box<dyn Iterator<Item = &mut LineString<f64>>>
     }
+
+    fn remove_elements_in_radius(
+        &mut self,
+        point: (f64, f64),
+        radius: f64,
+    ) -> Vec<LineString<f64>> {
+        let point = point.into();
+        let mut element_vec = Vec::new();
+        {
+            let elements = self.locate_within_distance(point, radius);
+            for elem in elements {
+                element_vec.push(elem.clone());
+            }
+        }
+        for elem in element_vec {
+            self.remove(&elem);
+        }
+        todo!()
+    }
 }
 
-pub trait Stroke {
+pub trait Stroke: Sized {
     fn add(&mut self, x: f64, y: f64);
     fn draw(&self, cairo_context: &Context, viewport: &Viewport);
     fn draw_direct(&self, cairo_context: &Context);
     fn normalize(self, viewport: &Viewport) -> Self;
+    fn remove(&mut self, box_rect: &Box2D<f64>) -> StrokeResult<Self>;
 }
 
 pub trait Element {
     fn draw(&self, viewport: &Viewport) -> RenderNode;
+}
+
+pub enum StrokeResult<A: Stroke> {
+    Removed,
+    Modified,
+    Split(Vec<A>),
 }
 
 impl Stroke for LineString<f64> {
@@ -81,13 +110,6 @@ impl Stroke for LineString<f64> {
         cairo_context.stroke().unwrap();
     }
 
-    fn normalize(mut self, viewport: &Viewport) -> Self {
-        for p in &mut self.0 {
-            *p = viewport.normalize_from_viewport(p.clone()).into();
-        }
-        self
-    }
-
     fn draw_direct(&self, cairo_context: &Context) {
         cairo_context.set_source_rgb(0f64, 0f64, 255f64);
         cairo_context.set_line_join(LineJoin::Round);
@@ -99,6 +121,17 @@ impl Stroke for LineString<f64> {
             cairo_context.line_to(coordinate.x, coordinate.y);
         }
         cairo_context.stroke().unwrap();
+    }
+
+    fn normalize(mut self, viewport: &Viewport) -> Self {
+        for p in &mut self.0 {
+            *p = viewport.normalize_from_viewport(p.clone()).into();
+        }
+        self
+    }
+
+    fn remove(&mut self, box_rect: &Box2D<f64>) -> StrokeResult<Self> {
+        todo!()
     }
 }
 
@@ -113,7 +146,7 @@ impl<T: Stroke> Element for T {
 }
 
 impl Viewport {
-    fn transform_to_viewport(&self, point: impl Into<(f64, f64)>) -> (f64, f64) {
+    pub fn transform_to_viewport(&self, point: impl Into<(f64, f64)>) -> (f64, f64) {
         let point_transformed = self
             .transform
             .inverse()
@@ -121,10 +154,10 @@ impl Viewport {
             .transform_point(point.into().into());
         point_transformed.into()
     }
-    fn normalize_from_viewport(&self, point: impl Into<(f64, f64)>) -> (f64, f64) {
+    pub fn normalize_from_viewport(&self, point: impl Into<(f64, f64)>) -> (f64, f64) {
         self.transform.transform_point(point.into().into()).into()
     }
-    fn normalized(&self) -> AABB<Point<f64>> {
+    pub fn normalized(&self) -> AABB<Point<f64>> {
         let lower = self.transform.transform_point(Point2D::new(0.0, 0.0));
         let upper = self
             .transform
