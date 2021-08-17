@@ -12,4 +12,5 @@ log = "0.4"
 ring-channel = "0.8"
 euclid = "0.22"
 rstar = {git = "https://github.com/lehmanju/rstar", branch = "selremove", features = ["serde"]}
-geo-types = {git = "https://github.com/lehmanju/geo", branch = "custom", features =["use-rstar", "serde"]}
+#geo-types = {git = "https://github.com/lehmanju/geo", branch = "custom", features =["use-rstar", "serde"]}
+geo = {git = "https://github.com/lehmanju/geo", branch = "custom" }

@@ -3,14 +3,14 @@ use std::slice::Windows;
 
 use euclid::default::Box2D;
 use euclid::{default::Point2D, default::Transform2D};
-use geo_types::{CoordNum, LineString, Point};
+use geo::{LineString, Point};
 use gtk::cairo::LineCap;
 use gtk::{
     cairo::{Context, LineJoin},
     graphene::Rect,
     gsk::{CairoNode, IsRenderNode, RenderNode},
 };
-use rstar::{PointDistance, RTree, AABB};
+use rstar::{AABB, Envelope, PointDistance, RTree};
 
 #[derive(Clone)]
 pub struct Viewport {
@@ -30,6 +30,8 @@ pub trait Document {
         viewport: &Viewport,
     ) -> Box<dyn Iterator<Item = &'a mut LineString<f64>> + 'a>;
     fn remove_elements_in_radius(&mut self, point: (f64, f64), radius: f64)
+        -> Vec<LineString<f64>>;
+        fn remove_elements_in_enevelope(&mut self, envelope:  &AABB<Point<f64>>)
         -> Vec<LineString<f64>>;
 }
 
@@ -63,6 +65,11 @@ impl Document for RTree<LineString<f64>> {
         let point = point.into();
         self.remove_within_distance(point, radius)
     }
+
+    fn remove_elements_in_enevelope(&mut self, envelope: &AABB<Point<f64>>)
+        -> Vec<LineString<f64>> {
+        self.remove_in_envelope_intersecting(envelope)
+    }
 }
 
 pub trait Stroke: Sized {
@@ -73,8 +80,14 @@ pub trait Stroke: Sized {
     fn erase_point(self, point: (f64, f64), radius: f64) -> Vec<Self>;
 }
 
-pub trait Element {
-    fn draw(&self, viewport: &Viewport) -> RenderNode;
+pub enum Element {
+    Stroke(LineString<f64>),
+    Difference(Difference)
+}
+
+pub struct Difference {
+    positive: Vec<Element>,
+    negative: Vec<Element>,
 }
 
 impl Stroke for LineString<f64> {
@@ -98,7 +111,6 @@ impl Stroke for LineString<f64> {
     }
 
     fn draw_direct(&self, cairo_context: &Context) {
-        cairo_context.set_source_rgb(0f64, 0f64, 255f64);
         cairo_context.set_line_join(LineJoin::Round);
         cairo_context.set_line_cap(LineCap::Round);
         let mut iter = self.0.iter();
@@ -139,16 +151,6 @@ impl Stroke for LineString<f64> {
             result.push(current_stroke.into());
         }
         result
-    }
-}
-
-impl<T: Stroke> Element for T {
-    fn draw(&self, viewport: &Viewport) -> RenderNode {
-        let rect = Rect::new(0.0, 0.0, viewport.width as f32, viewport.height as f32);
-        let cairo_node = CairoNode::new(&rect);
-        let cairo_context = cairo_node.draw_context().unwrap();
-        Stroke::draw(self, &cairo_context, viewport);
-        cairo_node.upcast()
     }
 }
 
