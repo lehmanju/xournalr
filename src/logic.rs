@@ -133,14 +133,7 @@ impl AppState {
                     self.stroke.as_mut().unwrap().add(x, y);
                 }
                 Tool::Eraser => {
-                    let lower = self.viewport.normalize_from_viewport((x - 2.0, y - 2.0));
-                    let upper = self.viewport.normalize_from_viewport((x + 2.0, y + 2.0));
-                    let _elements =
-                        self.drawing
-                            .remove_in_envelope_intersecting(&AABB::from_corners(
-                                lower.into(),
-                                upper.into(),
-                            ));
+                    self.erase(x, y);
                 }
                 Tool::Hand => todo!(),
             },
@@ -149,14 +142,7 @@ impl AppState {
                     self.stroke.as_mut().unwrap().add(x, y);
                 }
                 Tool::Eraser => {
-                    let lower = self.viewport.normalize_from_viewport((x - 2.0, y - 2.0));
-                    let upper = self.viewport.normalize_from_viewport((x + 2.0, y + 2.0));
-                    let _elements =
-                        self.drawing
-                            .remove_in_envelope_intersecting(&AABB::from_corners(
-                                lower.into(),
-                                upper.into(),
-                            ));
+                    self.erase(x, y);
                 }
                 Tool::Hand => todo!(),
             },
@@ -168,14 +154,7 @@ impl AppState {
                     self.stroke = None;
                 }
                 Tool::Eraser => {
-                    let lower = self.viewport.normalize_from_viewport((x - 2.0, y - 2.0));
-                    let upper = self.viewport.normalize_from_viewport((x + 2.0, y + 2.0));
-                    let _elements =
-                        self.drawing
-                            .remove_in_envelope_intersecting(&AABB::from_corners(
-                                lower.into(),
-                                upper.into(),
-                            ));
+                    self.erase(x, y);
                 }
                 Tool::Hand => todo!(),
             },
@@ -230,6 +209,17 @@ impl AppState {
             }
             Action::Motion(MotionEvent { x, y }) => {
                 self.pointer_old = Some((x, y));
+            }
+        }
+    }
+    fn erase(&mut self, x: f64, y: f64) {
+        let point = self.viewport.normalize_from_viewport((x, y)).into();
+        const PIXELS: f64 = 2.0;
+        let scaled_radius = PIXELS * self.viewport.transform.m11;
+        let mut elements = self.drawing.remove_within_distance(point, scaled_radius);
+        for element in elements.drain(0..) {
+            for e in element.erase_point(point.into(), scaled_radius) {
+                self.drawing.insert(e);
             }
         }
     }

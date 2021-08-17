@@ -1,13 +1,16 @@
+use std::num::NonZeroUsize;
+use std::slice::Windows;
+
 use euclid::default::Box2D;
 use euclid::{default::Point2D, default::Transform2D};
-use geo_types::{LineString, Point};
+use geo_types::{CoordNum, LineString, Point};
 use gtk::cairo::LineCap;
 use gtk::{
     cairo::{Context, LineJoin},
     graphene::Rect,
     gsk::{CairoNode, IsRenderNode, RenderNode},
 };
-use rstar::{RTree, AABB};
+use rstar::{PointDistance, RTree, AABB};
 
 #[derive(Clone)]
 pub struct Viewport {
@@ -58,17 +61,7 @@ impl Document for RTree<LineString<f64>> {
         radius: f64,
     ) -> Vec<LineString<f64>> {
         let point = point.into();
-        let mut element_vec = Vec::new();
-        {
-            let elements = self.locate_within_distance(point, radius);
-            for elem in elements {
-                element_vec.push(elem.clone());
-            }
-        }
-        for elem in element_vec {
-            self.remove(&elem);
-        }
-        todo!()
+        self.remove_within_distance(point, radius)
     }
 }
 
@@ -77,17 +70,11 @@ pub trait Stroke: Sized {
     fn draw(&self, cairo_context: &Context, viewport: &Viewport);
     fn draw_direct(&self, cairo_context: &Context);
     fn normalize(self, viewport: &Viewport) -> Self;
-    fn remove(&mut self, box_rect: &Box2D<f64>) -> StrokeResult<Self>;
+    fn erase_point(self, point: (f64, f64), radius: f64) -> Vec<Self>;
 }
 
 pub trait Element {
     fn draw(&self, viewport: &Viewport) -> RenderNode;
-}
-
-pub enum StrokeResult<A: Stroke> {
-    Removed,
-    Modified,
-    Split(Vec<A>),
 }
 
 impl Stroke for LineString<f64> {
@@ -130,8 +117,28 @@ impl Stroke for LineString<f64> {
         self
     }
 
-    fn remove(&mut self, box_rect: &Box2D<f64>) -> StrokeResult<Self> {
-        todo!()
+    fn erase_point(self, point: (f64, f64), radius: f64) -> Vec<Self> {
+        let distance_2 = radius * radius;
+        let mut result = Vec::new();
+        let mut current_stroke = Vec::new();
+        for line in self.lines() {
+            if line
+                .distance_2_if_less_or_equal(&point.into(), distance_2)
+                .is_some()
+            {
+                if !current_stroke.is_empty() {
+                    result.push(current_stroke.into());
+                    current_stroke = Vec::new();
+                }
+            } else {
+                current_stroke.push(line.start_point());
+                current_stroke.push(line.end_point());
+            }
+        }
+        if !current_stroke.is_empty() {
+            result.push(current_stroke.into());
+        }
+        result
     }
 }
 
