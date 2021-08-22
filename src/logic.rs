@@ -209,28 +209,30 @@ impl AppState {
                 }
                 self.viewport.transform.m31 -= ddx * self.viewport.transform.m11;
                 self.viewport.transform.m32 -= ddy * self.viewport.transform.m11;
-            }
+            },
             Action::ScrollEnd => {
                 self.scroll_state = None;
-            }
+            },
             Action::ToolPen => {
                 self.tool = Tool::Pen;
-            }
+            },
             Action::ToolEraser => {
                 self.tool = Tool::Eraser;
-            }
+            },
             Action::ToolObjEraser => {
                 self.tool = Tool::ObjEraser;
-            }
+            },
             Action::ToolHand => {
                 self.tool = Tool::Hand;
             },
             Action::Zoom(ZoomEvent { dscale }) => {
-                let dscale = dscale / 10f64;
+                let old_scale = self.viewport.transform.m22;
+                let dscale = dscale * old_scale;
                 let mut dx = 0f64;
                 let mut dy = 0f64;
                 let scale_y = self.viewport.transform.m22 + dscale;
                 let scale_x = self.viewport.transform.m11 + dscale;
+
                 if let Some((x, y)) = self.pointer_old {
                     dx = x * dscale;
                     dy = y * dscale;
@@ -241,7 +243,7 @@ impl AppState {
                     self.viewport.transform.m31 -= dx;
                     self.viewport.transform.m32 -= dy;
                 }
-            }
+            },
             Action::Motion(MotionEvent { x, y }) => {
                 self.pointer_old = Some((x, y));
             }
