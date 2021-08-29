@@ -10,7 +10,7 @@ use gtk::{
     graphene::Rect,
     gsk::{CairoNode, IsRenderNode, RenderNode},
 };
-use rstar::{AABB, Envelope, PointDistance, RTree};
+use rstar::{Envelope, PointDistance, RTree, AABB};
 
 #[derive(Clone)]
 pub struct Viewport {
@@ -31,7 +31,7 @@ pub trait Document {
     ) -> Box<dyn Iterator<Item = &'a mut LineString<f64>> + 'a>;
     fn remove_elements_in_radius(&mut self, point: (f64, f64), radius: f64)
         -> Vec<LineString<f64>>;
-        fn remove_elements_in_enevelope(&mut self, envelope:  &AABB<Point<f64>>)
+    fn remove_elements_in_enevelope(&mut self, envelope: &AABB<Point<f64>>)
         -> Vec<LineString<f64>>;
 }
 
@@ -66,8 +66,10 @@ impl Document for RTree<LineString<f64>> {
         self.remove_within_distance(point, radius)
     }
 
-    fn remove_elements_in_enevelope(&mut self, envelope: &AABB<Point<f64>>)
-        -> Vec<LineString<f64>> {
+    fn remove_elements_in_enevelope(
+        &mut self,
+        envelope: &AABB<Point<f64>>,
+    ) -> Vec<LineString<f64>> {
         self.remove_in_envelope_intersecting(envelope)
     }
 }
@@ -82,7 +84,7 @@ pub trait Stroke: Sized {
 
 pub enum Element {
     Stroke(LineString<f64>),
-    Difference(Difference)
+    Difference(Difference),
 }
 
 pub struct Difference {

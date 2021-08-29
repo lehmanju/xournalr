@@ -1,12 +1,13 @@
 use euclid::default::Box2D;
+use geo::{algorithm::intersects::Intersects, LineString};
 use gtk::{
+    cairo::{LineCap, LineJoin},
     graphene::Rect,
     gsk::{CairoNode, IsRenderNode, RenderNode},
     prelude::WidgetExt,
 };
 use ring_channel::RingSender;
-use rstar::{AABB, RTree, RTreeObject};
-use geo::{LineString, algorithm::intersects::Intersects};
+use rstar::{RTree, RTreeObject, AABB};
 
 use crate::custom_widget::MainWidget;
 use crate::quadtree::{Document, Stroke, Viewport};
@@ -112,6 +113,9 @@ impl Widgets {
         let cairo_context = cairo_node.draw_context().unwrap();
         cairo_context.set_source_rgb(255f64, 255f64, 255f64);
         cairo_context.paint().unwrap();
+        cairo_context.set_source_rgb(0f64, 0f64, 255f64);
+        cairo_context.set_line_join(LineJoin::Round);
+        cairo_context.set_line_cap(LineCap::Round);
         let elements = state.drawing.elements_in_viewport(&state.viewport);
         for elem in elements {
             elem.draw(&cairo_context, &state.viewport);
@@ -153,16 +157,17 @@ impl AppState {
                 }
                 Tool::Eraser => {
                     let mut stroke = self.stroke.take().unwrap();
-                    stroke.add(x,y);
+                    stroke.add(x, y);
                     let stroke = stroke.normalize(&self.viewport);
-                    let mut elements = self.drawing.remove_elements_in_enevelope(&stroke.envelope());
+                    let mut elements = self
+                        .drawing
+                        .remove_elements_in_enevelope(&stroke.envelope());
                     let mut difference = Vec::new();
                     for e in elements.drain(0..) {
                         if stroke.intersects(&e) {
                             println!("Intersection");
                             difference.push(e);
-                        }
-                        else {
+                        } else {
                             self.drawing.insert(e);
                         }
                     }

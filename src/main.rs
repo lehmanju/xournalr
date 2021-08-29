@@ -83,7 +83,6 @@ fn build_ui(app: &Application) {
     popover_menu.set_position(PositionType::Left);
     widget.set_popover_menu(&popover_menu);
 
-    // render 3 frames in advance
     let (frame_sender, frame_receiver) = ring_channel(NonZeroUsize::new(1).unwrap());
     widget.set_render_channel(frame_receiver);
 
@@ -222,6 +221,7 @@ fn build_ui(app: &Application) {
         pointer_old: None,
         tool: Tool::Pen,
     }));
+    widget.queue_draw();
     widgets.update(&state.borrow());
     receiver.attach(None, move |action| {
         update(action, &mut widgets, &mut state.borrow_mut());
