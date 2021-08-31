@@ -1,4 +1,3 @@
-use euclid::default::Box2D;
 use geo::{algorithm::intersects::Intersects, LineString};
 use gtk::{
     cairo::{LineCap, LineJoin},
@@ -7,7 +6,7 @@ use gtk::{
     prelude::WidgetExt,
 };
 use ring_channel::RingSender;
-use rstar::{RTree, RTreeObject, AABB};
+use rstar::{RTree, RTreeObject};
 
 use crate::custom_widget::MainWidget;
 use crate::quadtree::{Document, Stroke, Viewport};
@@ -23,6 +22,7 @@ pub enum Action {
     Motion(MotionEvent),
     ToolPen,
     ToolEraser,
+    ToolObjEraser,
     ToolHand,
     ScrollStart,
     ScrollEnd,
@@ -86,6 +86,7 @@ pub struct ScrollState {
 pub enum Tool {
     Pen,
     Eraser,
+    ObjEraser,
     Hand,
 }
 
@@ -121,7 +122,7 @@ impl Widgets {
             elem.draw(&cairo_context, &state.viewport);
         }
         if let Some(stroke) = &state.stroke {
-            if state.tool == Tool::Eraser {
+            if state.tool == Tool::Eraser || state.tool == Tool::ObjEraser {
                 cairo_context.set_source_rgb(255f64, 255f64, 255f64);
                 cairo_context.set_line_width(5.0);
             }
@@ -136,14 +137,14 @@ impl AppState {
     pub fn dispatch(&mut self, action: Action) {
         match action {
             Action::MousePress(MousePressAction { x, y }) => match self.tool {
-                Tool::Pen | Tool::Eraser => {
+                Tool::Pen | Tool::Eraser | Tool::ObjEraser => {
                     self.stroke = Some(LineString(Vec::new()));
                     self.stroke.as_mut().unwrap().add(x, y);
                 }
                 Tool::Hand => todo!(),
             },
             Action::MouseMotion(MouseMotionAction { x, y }) => match self.tool {
-                Tool::Pen | Tool::Eraser => {
+                Tool::Pen | Tool::Eraser | Tool::ObjEraser => {
                     self.stroke.as_mut().unwrap().add(x, y);
                 }
                 Tool::Hand => todo!(),
@@ -155,17 +156,22 @@ impl AppState {
                     self.drawing.add(stroke, &self.viewport);
                     self.stroke = None;
                 }
-                Tool::Eraser => {
+                tool @ Tool::Eraser | tool @ Tool::ObjEraser => {
                     let mut stroke = self.stroke.take().unwrap();
                     stroke.add(x, y);
                     let stroke = stroke.normalize(&self.viewport);
-                    for e in self
+                    let elements = self
                         .drawing
-                        .drain_in_envelope_intersecting(stroke.envelope())
-                        .filter(|e| !stroke.intersects(e))
-                        .collect::<Vec<_>>()
-                    {
-                        self.drawing.insert(e);
+                        .drain_in_envelope_intersecting(stroke.envelope());
+                    if tool == Tool::Eraser {
+                        unimplemented!()
+                    } else {
+                        for e in elements
+                            .filter(|e| !stroke.intersects(e))
+                            .collect::<Vec<_>>()
+                        {
+                            self.drawing.insert(e);
+                        }
                     }
                     self.stroke = None;
                 }
@@ -201,6 +207,9 @@ impl AppState {
             }
             Action::ToolEraser => {
                 self.tool = Tool::Eraser;
+            }
+            Action::ToolObjEraser => {
+                self.tool = Tool::ObjEraser;
             }
             Action::ToolHand => todo!(),
             Action::Zoom(ZoomEvent { dscale }) => {

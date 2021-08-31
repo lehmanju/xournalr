@@ -10,23 +10,22 @@ use gtk::EventSequenceState;
 use gtk::{glib, EventControllerScroll, EventControllerScrollFlags, Inhibit};
 use gtk::{prelude::*, GestureClick, PopoverMenu, PopoverMenuFlags, PositionType};
 use gtk::{Application, EventControllerMotion};
-use logic::{
-    Action, AppState, MotionEvent, MouseMotionAction, MousePressAction, MouseReleaseAction,
-    ScrollEvent, Tool, Widgets, ZoomEvent,
-};
+use ring_channel::*;
+use rstar::RTree;
 use std::cell::RefCell;
 use std::num::NonZeroUsize;
 use std::rc::Rc;
 
-use quadtree::Viewport;
-
 mod custom_widget;
 mod logic;
 mod quadtree;
-use custom_widget::MainWidget;
 
-use ring_channel::*;
-use rstar::RTree;
+use custom_widget::MainWidget;
+use logic::{
+    Action, AppState, MotionEvent, MouseMotionAction, MousePressAction, MouseReleaseAction,
+    ScrollEvent, Tool, Widgets, ZoomEvent,
+};
+use quadtree::Viewport;
 
 static GLIB_LOGGER: glib::GlibLogger = glib::GlibLogger::new(
     glib::GlibLoggerFormat::Plain,
@@ -62,14 +61,15 @@ fn build_ui(app: &Application) {
     let tool_action_sender = sender.clone();
     tool_action.connect_activate(move |action, state| {
         let state = state.unwrap();
-        if state.to_string() == "'pen'" {
-            tool_action_sender.send(Action::ToolPen).unwrap();
-            action.set_state(state);
-        } else if state.to_string() == "'eraser'" {
-            tool_action_sender.send(Action::ToolEraser).unwrap();
-            action.set_state(state);
-        } else if state.to_string() == "'hand'" {
-            tool_action_sender.send(Action::ToolHand).unwrap();
+        let tool_action = match state.to_string().as_str() {
+            "'pen'" => Some(Action::ToolPen),
+            "'eraser'" => Some(Action::ToolEraser),
+            "'obj_eraser'" => Some(Action::ToolObjEraser),
+            "'hand'" => Some(Action::ToolHand),
+            _ => None,
+        };
+        if let Some(tool_action) = tool_action {
+            tool_action_sender.send(tool_action).unwrap();
             action.set_state(state);
         }
     });
@@ -78,6 +78,7 @@ fn build_ui(app: &Application) {
     let menu = Menu::new();
     menu.append(Some("Pen"), Some("app.tool::pen"));
     menu.append(Some("Eraser"), Some("app.tool::eraser"));
+    menu.append(Some("Object Eraser"), Some("app.tool::obj_eraser"));
     menu.append(Some("Hand"), Some("app.tool::hand"));
     let popover_menu = PopoverMenu::from_model_full(&menu, PopoverMenuFlags::empty());
     popover_menu.set_position(PositionType::Left);
