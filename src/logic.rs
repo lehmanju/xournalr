@@ -159,17 +159,13 @@ impl AppState {
                     let mut stroke = self.stroke.take().unwrap();
                     stroke.add(x, y);
                     let stroke = stroke.normalize(&self.viewport);
-                    let mut elements = self
+                    for e in self
                         .drawing
-                        .remove_elements_in_enevelope(&stroke.envelope());
-                    let mut difference = Vec::new();
-                    for e in elements.drain(0..) {
-                        if stroke.intersects(&e) {
-                            println!("Intersection");
-                            difference.push(e);
-                        } else {
-                            self.drawing.insert(e);
-                        }
+                        .drain_in_envelope_intersecting(stroke.envelope())
+                        .filter(|e| !stroke.intersects(e))
+                        .collect::<Vec<_>>()
+                    {
+                        self.drawing.insert(e);
                     }
                     self.stroke = None;
                 }

@@ -29,10 +29,6 @@ pub trait Document {
         &'a mut self,
         viewport: &Viewport,
     ) -> Box<dyn Iterator<Item = &'a mut LineString<f64>> + 'a>;
-    fn remove_elements_in_radius(&mut self, point: (f64, f64), radius: f64)
-        -> Vec<LineString<f64>>;
-    fn remove_elements_in_enevelope(&mut self, envelope: &AABB<Point<f64>>)
-        -> Vec<LineString<f64>>;
 }
 
 impl Document for RTree<LineString<f64>> {
@@ -55,22 +51,6 @@ impl Document for RTree<LineString<f64>> {
     ) -> Box<dyn Iterator<Item = &'a mut LineString<f64>> + 'a> {
         Box::new(self.locate_in_envelope_intersecting_mut(&viewport.normalized()))
             as Box<dyn Iterator<Item = &mut LineString<f64>>>
-    }
-
-    fn remove_elements_in_radius(
-        &mut self,
-        point: (f64, f64),
-        radius: f64,
-    ) -> Vec<LineString<f64>> {
-        let point = point.into();
-        self.remove_within_distance(point, radius)
-    }
-
-    fn remove_elements_in_enevelope(
-        &mut self,
-        envelope: &AABB<Point<f64>>,
-    ) -> Vec<LineString<f64>> {
-        self.remove_in_envelope_intersecting(envelope)
     }
 }
 
