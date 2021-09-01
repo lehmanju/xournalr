@@ -1,16 +1,10 @@
-use std::num::NonZeroUsize;
-use std::slice::Windows;
-
-use euclid::default::Box2D;
 use euclid::{default::Point2D, default::Transform2D};
 use geo::{LineString, Point};
 use gtk::cairo::LineCap;
-use gtk::{
-    cairo::{Context, LineJoin},
-    graphene::Rect,
-    gsk::{CairoNode, IsRenderNode, RenderNode},
-};
-use rstar::{Envelope, PointDistance, RTree, AABB};
+use gtk::cairo::{Context, LineJoin};
+use rstar::{RTree, AABB};
+
+use crate::logic::ColoredLineString;
 
 #[derive(Clone)]
 pub struct Viewport {
@@ -20,19 +14,22 @@ pub struct Viewport {
 }
 
 pub trait Document {
-    fn add(&mut self, stroke: LineString<f64>, viewport: &Viewport);
+    type Stroke;
+    fn add(&mut self, stroke: Self::Stroke, viewport: &Viewport);
     fn elements_in_viewport<'a>(
         &'a self,
         viewport: &Viewport,
-    ) -> Box<dyn Iterator<Item = &'a LineString<f64>> + 'a>;
+    ) -> Box<dyn Iterator<Item = &'a Self::Stroke> + 'a>;
     fn elements_in_viewport_mut<'a>(
         &'a mut self,
         viewport: &Viewport,
-    ) -> Box<dyn Iterator<Item = &'a mut LineString<f64>> + 'a>;
+    ) -> Box<dyn Iterator<Item = &'a mut Self::Stroke> + 'a>;
 }
 
-impl Document for RTree<LineString<f64>> {
-    fn add(&mut self, stroke: LineString<f64>, viewport: &Viewport) {
+impl Document for RTree<ColoredLineString> {
+    type Stroke = ColoredLineString;
+
+    fn add(&mut self, stroke: Self::Stroke, viewport: &Viewport) {
         let normalized_stroke = stroke.normalize(&viewport);
         self.insert(normalized_stroke);
     }
@@ -40,17 +37,15 @@ impl Document for RTree<LineString<f64>> {
     fn elements_in_viewport<'a>(
         &'a self,
         viewport: &Viewport,
-    ) -> Box<dyn Iterator<Item = &'a LineString<f64>> + 'a> {
+    ) -> Box<dyn Iterator<Item = &'a Self::Stroke> + 'a> {
         Box::new(self.locate_in_envelope_intersecting(&viewport.normalized()))
-            as Box<dyn Iterator<Item = &LineString<f64>>>
     }
 
     fn elements_in_viewport_mut<'a>(
         &'a mut self,
         viewport: &Viewport,
-    ) -> Box<dyn Iterator<Item = &'a mut LineString<f64>> + 'a> {
+    ) -> Box<dyn Iterator<Item = &'a mut Self::Stroke> + 'a> {
         Box::new(self.locate_in_envelope_intersecting_mut(&viewport.normalized()))
-            as Box<dyn Iterator<Item = &mut LineString<f64>>>
     }
 }
 
@@ -59,7 +54,7 @@ pub trait Stroke: Sized {
     fn draw(&self, cairo_context: &Context, viewport: &Viewport);
     fn draw_direct(&self, cairo_context: &Context);
     fn normalize(self, viewport: &Viewport) -> Self;
-    fn erase_point(self, point: (f64, f64), radius: f64) -> Vec<Self>;
+    //    fn erase_point(self, point: (f64, f64), radius: f64) -> Vec<Self>;
 }
 
 pub enum Element {
@@ -72,16 +67,21 @@ pub struct Difference {
     negative: Vec<Element>,
 }
 
-impl Stroke for LineString<f64> {
+impl Stroke for ColoredLineString {
     fn add(&mut self, x: f64, y: f64) {
-        self.0.push((x, y).into());
+        self.line_str.0.push((x, y).into());
     }
 
     fn draw(&self, cairo_context: &Context, viewport: &Viewport) {
-        cairo_context.set_source_rgb(0f64, 0f64, 255f64);
+        cairo_context.set_source_rgba(
+            self.color.0 as f64,
+            self.color.1 as f64,
+            self.color.2 as f64,
+            self.color.3,
+        );
         cairo_context.set_line_join(LineJoin::Round);
         cairo_context.set_line_cap(LineCap::Round);
-        let mut iter = self.0.iter();
+        let mut iter = self.line_str.0.iter();
         let coordinate = iter.next().unwrap();
         let point_transformed = viewport.transform_to_viewport(coordinate.clone());
         cairo_context.move_to(point_transformed.0, point_transformed.1);
@@ -93,35 +93,41 @@ impl Stroke for LineString<f64> {
     }
 
     fn draw_direct(&self, cairo_context: &Context) {
+        cairo_context.set_source_rgba(
+            self.color.0 as f64,
+            self.color.1 as f64,
+            self.color.2 as f64,
+            self.color.3,
+        );
         cairo_context.set_line_join(LineJoin::Round);
         cairo_context.set_line_cap(LineCap::Round);
-        let mut iter = self.0.iter();
+        let mut iter = self.line_str.0.iter();
         let coordinate = iter.next().unwrap();
         cairo_context.move_to(coordinate.x, coordinate.y);
-        for coordinate in self.0.iter() {
+        for coordinate in self.line_str.0.iter() {
             cairo_context.line_to(coordinate.x, coordinate.y);
         }
         cairo_context.stroke().unwrap();
     }
 
     fn normalize(mut self, viewport: &Viewport) -> Self {
-        for p in &mut self.0 {
+        for p in &mut self.line_str.0 {
             *p = viewport.normalize_from_viewport(p.clone()).into();
         }
         self
     }
 
-    fn erase_point(self, point: (f64, f64), radius: f64) -> Vec<Self> {
+    /*fn erase_point(self, point: (f64, f64), radius: f64) -> Vec<Self> {
         let distance_2 = radius * radius;
-        let mut result = Vec::new();
+        let mut lines = Vec::new();
         let mut current_stroke = Vec::new();
-        for line in self.lines() {
+        for line in self.line_str.lines() {
             if line
                 .distance_2_if_less_or_equal(&point.into(), distance_2)
                 .is_some()
             {
                 if !current_stroke.is_empty() {
-                    result.push(current_stroke.into());
+                    lines.push(current_stroke.into());
                     current_stroke = Vec::new();
                 }
             } else {
@@ -130,10 +136,13 @@ impl Stroke for LineString<f64> {
             }
         }
         if !current_stroke.is_empty() {
-            result.push(current_stroke.into());
+            lines.push(current_stroke.into());
         }
-        result
-    }
+        ColoredLineString {
+            line_str: lines.into(),
+            color: self.color
+        }
+    }*/
 }
 
 impl Viewport {

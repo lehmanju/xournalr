@@ -91,11 +91,39 @@ pub enum Tool {
 }
 
 #[derive(Clone)]
+pub struct ColoredLineString {
+    pub line_str: LineString<f64>,
+    pub color: (u8, u8, u8, f64),
+}
+
+impl<G> Intersects<G> for ColoredLineString
+where
+    LineString<f64>: Intersects<G>,
+{
+    fn intersects(&self, geom: &G) -> bool {
+        self.line_str.intersects(geom)
+    }
+}
+
+impl Intersects<ColoredLineString> for ColoredLineString {
+    fn intersects(&self, geom: &ColoredLineString) -> bool {
+        self.intersects(&geom.line_str)
+    }
+}
+
+impl RTreeObject for ColoredLineString {
+    type Envelope = <LineString<f64> as RTreeObject>::Envelope;
+    fn envelope(&self) -> Self::Envelope {
+        self.line_str.envelope()
+    }
+}
+
+#[derive(Clone)]
 pub struct AppState {
     /// document
-    pub drawing: RTree<LineString<f64>>,
+    pub drawing: RTree<ColoredLineString>,
     /// currently drawn stroke
-    pub stroke: Option<LineString<f64>>,
+    pub stroke: Option<ColoredLineString>,
     pub viewport: Viewport,
     pub scroll_state: Option<ScrollState>,
     pub pointer_old: Option<(f64, f64)>,
@@ -114,7 +142,6 @@ impl Widgets {
         let cairo_context = cairo_node.draw_context().unwrap();
         cairo_context.set_source_rgb(255f64, 255f64, 255f64);
         cairo_context.paint().unwrap();
-        cairo_context.set_source_rgb(0f64, 0f64, 255f64);
         cairo_context.set_line_join(LineJoin::Round);
         cairo_context.set_line_cap(LineCap::Round);
         let elements = state.drawing.elements_in_viewport(&state.viewport);
@@ -122,10 +149,6 @@ impl Widgets {
             elem.draw(&cairo_context, &state.viewport);
         }
         if let Some(stroke) = &state.stroke {
-            if state.tool == Tool::Eraser || state.tool == Tool::ObjEraser {
-                cairo_context.set_source_rgb(255f64, 255f64, 255f64);
-                cairo_context.set_line_width(5.0);
-            }
             stroke.draw_direct(&cairo_context);
         }
         self.pipeline.send(cairo_node.upcast()).unwrap();
@@ -138,7 +161,14 @@ impl AppState {
         match action {
             Action::MousePress(MousePressAction { x, y }) => match self.tool {
                 Tool::Pen | Tool::Eraser | Tool::ObjEraser => {
-                    self.stroke = Some(LineString(Vec::new()));
+                    self.stroke = Some(ColoredLineString {
+                        line_str: LineString(Vec::new()),
+                        color: if self.tool == Tool::Pen {
+                            (0, 0, 255, 1.0)
+                        } else {
+                            (255, 0, 0, 1.0)
+                        },
+                    });
                     self.stroke.as_mut().unwrap().add(x, y);
                 }
                 Tool::Hand => todo!(),
@@ -160,12 +190,12 @@ impl AppState {
                     let mut stroke = self.stroke.take().unwrap();
                     stroke.add(x, y);
                     let stroke = stroke.normalize(&self.viewport);
-                    let elements = self
-                        .drawing
-                        .drain_in_envelope_intersecting(stroke.envelope());
                     if tool == Tool::Eraser {
-                        unimplemented!()
+                        self.drawing.insert(stroke);
                     } else {
+                        let elements = self
+                            .drawing
+                            .drain_in_envelope_intersecting(stroke.envelope());
                         for e in elements
                             .filter(|e| !stroke.intersects(e))
                             .collect::<Vec<_>>()
