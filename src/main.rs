@@ -184,7 +184,7 @@ fn build_ui(app: &Application) {
     widget.add_controller(&scroll_controller);
 
     let motion_controller = EventControllerMotion::new();
-    let sender_motion = sender.clone();
+    let sender_motion = sender;
     motion_controller.connect_motion(move |_, x, y| {
         sender_motion
             .send(Action::Motion(MotionEvent { x, y }))

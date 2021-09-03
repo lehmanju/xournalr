@@ -1,16 +1,8 @@
-use std::num::NonZeroUsize;
-use std::slice::Windows;
-
-use euclid::default::Box2D;
 use euclid::{default::Point2D, default::Transform2D};
 use geo::{LineString, Point};
 use gtk::cairo::LineCap;
-use gtk::{
-    cairo::{Context, LineJoin},
-    graphene::Rect,
-    gsk::{CairoNode, IsRenderNode, RenderNode},
-};
-use rstar::{Envelope, PointDistance, RTree, AABB};
+use gtk::cairo::{Context, LineJoin};
+use rstar::{PointDistance, RTree, AABB};
 
 #[derive(Clone)]
 pub struct Viewport {
@@ -33,7 +25,7 @@ pub trait Document {
 
 impl Document for RTree<LineString<f64>> {
     fn add(&mut self, stroke: LineString<f64>, viewport: &Viewport) {
-        let normalized_stroke = stroke.normalize(&viewport);
+        let normalized_stroke = stroke.normalize(viewport);
         self.insert(normalized_stroke);
     }
 
@@ -62,16 +54,6 @@ pub trait Stroke: Sized {
     fn erase_point(self, point: (f64, f64), radius: f64) -> Vec<Self>;
 }
 
-pub enum Element {
-    Stroke(LineString<f64>),
-    Difference(Difference),
-}
-
-pub struct Difference {
-    positive: Vec<Element>,
-    negative: Vec<Element>,
-}
-
 impl Stroke for LineString<f64> {
     fn add(&mut self, x: f64, y: f64) {
         self.0.push((x, y).into());
@@ -83,10 +65,10 @@ impl Stroke for LineString<f64> {
         cairo_context.set_line_cap(LineCap::Round);
         let mut iter = self.0.iter();
         let coordinate = iter.next().unwrap();
-        let point_transformed = viewport.transform_to_viewport(coordinate.clone());
+        let point_transformed = viewport.transform_to_viewport(*coordinate);
         cairo_context.move_to(point_transformed.0, point_transformed.1);
         for coordinate in iter {
-            let point_transformed = viewport.transform_to_viewport(coordinate.clone());
+            let point_transformed = viewport.transform_to_viewport(*coordinate);
             cairo_context.line_to(point_transformed.0, point_transformed.1);
         }
         cairo_context.stroke().unwrap();
@@ -106,7 +88,7 @@ impl Stroke for LineString<f64> {
 
     fn normalize(mut self, viewport: &Viewport) -> Self {
         for p in &mut self.0 {
-            *p = viewport.normalize_from_viewport(p.clone()).into();
+            *p = viewport.normalize_from_viewport(*p).into();
         }
         self
     }

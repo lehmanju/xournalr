@@ -87,6 +87,8 @@ pub enum Tool {
     Pen,
     Eraser,
     ObjEraser,
+
+    #[allow(dead_code)]
     Hand,
 }
 
@@ -156,14 +158,14 @@ impl AppState {
                     self.drawing.add(stroke, &self.viewport);
                     self.stroke = None;
                 }
-                tool @ Tool::Eraser | tool @ Tool::ObjEraser => {
+                Tool::Eraser | Tool::ObjEraser => {
                     let mut stroke = self.stroke.take().unwrap();
                     stroke.add(x, y);
                     let stroke = stroke.normalize(&self.viewport);
                     let elements = self
                         .drawing
                         .drain_in_envelope_intersecting(stroke.envelope());
-                    if tool == Tool::Eraser {
+                    if self.tool == Tool::Eraser {
                         unimplemented!()
                     } else {
                         for e in elements
