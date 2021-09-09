@@ -1,16 +1,17 @@
+# -*- eval: (cargo-minor-mode 1) -*-
+
 [package]
 name = "xournalr"
 version = "0.1.0"
 edition = "2018"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+license = "GPL-3.0"
 
 [dependencies]
-gtk = { version = "0.2" , package = "gtk4"}
-glib = { version = "0.14", features = ["log"]}
+aatree = { git = "https://github.com/msrd0/aatree" }
+euclid = "0.22"
+geo = { git = "https://github.com/lehmanju/geo", branch = "custom" }
+glib = { version = "0.14", features = ["log"] }
+gtk = { version = "0.2", package = "gtk4" }
 log = "0.4"
 ring-channel = "0.8"
-euclid = "0.22"
-rstar = {git = "https://github.com/georust/rstar", features = ["serde"]}
-#geo-types = {git = "https://github.com/lehmanju/geo", branch = "custom", features =["use-rstar", "serde"]}
-geo = {git = "https://github.com/lehmanju/geo", branch = "custom" }
+rstar = { git = "https://github.com/georust/rstar", features = ["serde"] }

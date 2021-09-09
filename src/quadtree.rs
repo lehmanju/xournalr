@@ -1,14 +1,39 @@
+use crate::float::Float;
+use aatree::{AATreeMap, AATreeSet};
 use euclid::{default::Point2D, default::Transform2D};
-use geo::{LineString, Point};
+use geo::{Coordinate, LineString, Point};
 use gtk::cairo::LineCap;
 use gtk::cairo::{Context, LineJoin};
-use rstar::{PointDistance, RTree, AABB};
+use rstar::{RTree, AABB};
 
 #[derive(Clone)]
 pub struct Viewport {
     pub width: i32,
     pub height: i32,
     pub transform: Transform2D<f64>,
+}
+
+impl Viewport {
+    pub fn transform_to_viewport(&self, point: impl Into<(f64, f64)>) -> (f64, f64) {
+        let point_transformed = self
+            .transform
+            .inverse()
+            .unwrap()
+            .transform_point(point.into().into());
+        point_transformed.into()
+    }
+    pub fn normalize_from_viewport(&self, point: impl Into<(f64, f64)>) -> (f64, f64) {
+        self.transform.transform_point(point.into().into()).into()
+    }
+    pub fn normalized(&self) -> AABB<Point<f64>> {
+        let lower = self.transform.transform_point(Point2D::new(0.0, 0.0));
+        let upper = self
+            .transform
+            .transform_point(Point2D::new(self.width as f64, self.height as f64));
+        let lower_t: (f64, f64) = lower.into();
+        let upper_t: (f64, f64) = upper.into();
+        AABB::from_corners(lower_t.into(), upper_t.into())
+    }
 }
 
 pub trait Document {
@@ -51,7 +76,12 @@ pub trait Stroke: Sized {
     fn draw(&self, cairo_context: &Context, viewport: &Viewport);
     fn draw_direct(&self, cairo_context: &Context);
     fn normalize(self, viewport: &Viewport) -> Self;
-    fn erase_point(self, point: (f64, f64), radius: f64) -> Vec<Self>;
+
+    /// Erase this stroke with `radius` from a list of strokes. Each intersection splits the stroke
+    /// into two new strokes with the intersection part erased.
+    fn erase_from<'a, I>(&self, strokes: I, radius: f64) -> Vec<LineString<f64>>
+    where
+        I: IntoIterator<Item = &'a LineString<f64>>;
 }
 
 impl Stroke for LineString<f64> {
@@ -93,50 +123,87 @@ impl Stroke for LineString<f64> {
         self
     }
 
-    fn erase_point(self, point: (f64, f64), radius: f64) -> Vec<Self> {
-        let distance_2 = radius * radius;
-        let mut result = Vec::new();
-        let mut current_stroke = Vec::new();
-        for line in self.lines() {
-            if line
-                .distance_2_if_less_or_equal(&point.into(), distance_2)
-                .is_some()
-            {
-                if !current_stroke.is_empty() {
-                    result.push(current_stroke.into());
-                    current_stroke = Vec::new();
+    fn erase_from<'a, I>(&self, strokes: I, radius: f64) -> Vec<LineString<f64>>
+    where
+        I: IntoIterator<Item = &'a LineString<f64>>,
+    {
+        #[derive(Clone, Copy, Debug)]
+        struct Segment {
+            /// The start point of this segment. It has the smaller x value.
+            start: Coordinate<f64>,
+            /// The end point of this segment. It has the larger x value.
+            end: Coordinate<f64>,
+            /// The id of the line string it was originally part of.
+            id: usize,
+        }
+
+        #[derive(Debug)]
+        enum Event {
+            Start(Segment),
+            End(Segment),
+        }
+
+        // collect all segments from the line strings
+        let mut segments = Vec::new();
+        let mut i = 0;
+        let mut last: Option<Coordinate<f64>>;
+        for stroke in strokes {
+            last = None;
+            for point in stroke.0.iter().map(|p| *p) {
+                if let Some(last) = last {
+                    let (start, end) = if last.x > point.x {
+                        (point, last)
+                    } else {
+                        (last, point)
+                    };
+                    segments.push(Segment { start, end, id: i })
                 }
+                last = Some(point);
+            }
+            i += 1;
+        }
+
+        // collect all start/end events
+        let mut events = AATreeMap::<Float, Vec<Event>>::new();
+        for s in segments {
+            let start_x = Float::new(s.start.x);
+            if let Some(e) = events.get_mut(&start_x) {
+                e.push(Event::Start(s));
             } else {
-                current_stroke.push(line.start_point());
-                current_stroke.push(line.end_point());
+                events.insert(start_x, vec![Event::Start(s)]);
+            }
+
+            let end_x = Float::new(s.end.x);
+            if let Some(e) = events.get_mut(&end_x) {
+                e.push(Event::End(s));
+            } else {
+                events.insert(end_x, vec![Event::End(s)]);
             }
         }
-        if !current_stroke.is_empty() {
-            result.push(current_stroke.into());
-        }
-        result
+        dbg!(events);
+
+        let mut above = AATreeSet::<Segment>::new();
+        let mut below = AATreeSet::<Segment>::new();
+
+        unimplemented!()
     }
 }
 
-impl Viewport {
-    pub fn transform_to_viewport(&self, point: impl Into<(f64, f64)>) -> (f64, f64) {
-        let point_transformed = self
-            .transform
-            .inverse()
-            .unwrap()
-            .transform_point(point.into().into());
-        point_transformed.into()
-    }
-    pub fn normalize_from_viewport(&self, point: impl Into<(f64, f64)>) -> (f64, f64) {
-        self.transform.transform_point(point.into().into()).into()
-    }
-    pub fn normalized(&self) -> AABB<Point<f64>> {
-        let lower = self.transform.transform_point(Point2D::new(0.0, 0.0));
-        let upper = self
-            .transform
-            .transform_point(Point2D::new(self.width as f64, self.height as f64));
-        let lower_t: (f64, f64) = lower.into();
-        let upper_t: (f64, f64) = upper.into();
-        AABB::from_corners(lower_t.into(), upper_t.into())
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sweepline() {
+        let strokes = vec![LineString(vec![
+            (0.0, 0.0).into(),
+            (1.0, 0.0).into(),
+            (2.0, 1.0).into(),
+        ])];
+        let erase_stroke = LineString(vec![(0.0, 0.0).into(), (2.0, 2.0).into()]);
+
+        let _ = Stroke::erase_from(&erase_stroke, strokes.iter(), 1.0);
+
+        assert!(false);
     }
 }

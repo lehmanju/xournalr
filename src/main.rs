@@ -17,6 +17,7 @@ use std::num::NonZeroUsize;
 use std::rc::Rc;
 
 mod custom_widget;
+mod float;
 mod logic;
 mod quadtree;
 
