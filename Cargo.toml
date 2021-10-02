@@ -7,7 +7,7 @@ edition = "2018"
 license = "GPL-3.0"
 
 [dependencies]
-aatree = { git = "https://github.com/msrd0/aatree" }
+geo-booleanop = "0.3"
 euclid = "0.22"
 geo = { git = "https://github.com/lehmanju/geo", branch = "custom" }
 glib = { version = "0.14", features = ["log"] }

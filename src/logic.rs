@@ -1,4 +1,10 @@
-use geo::{algorithm::intersects::Intersects, LineString};
+use std::collections::VecDeque;
+
+use euclid::default::Vector2D;
+use geo::{
+    algorithm::intersects::Intersects, euclidean_length::EuclideanLength, Coordinate, Line,
+    LineString, Polygon,
+};
 use gtk::{
     cairo::{LineCap, LineJoin},
     graphene::Rect,
@@ -135,6 +141,44 @@ impl Widgets {
     }
 }
 
+enum ConnectorType {
+    Sharp, //
+    //Flat,
+    //Round
+}
+
+fn stroke_to_polyline(
+    stroke: LineString<f64>,
+    radius: f64,
+    ct: ConnectorType,
+) -> Result<Polygon<f64>, ()> {
+    let norm_lot = |line: Line<f64>| Vector2D::new(-line.dy(), line.dx()) / line.euclidean_length();
+    let as_coordinate = |vec: Vector2D<f64>| Coordinate::from((vec.x, vec.y));
+
+    let mut prev_line_o = stroke.lines().next();
+
+    match ct {
+        ConnectorType::Sharp => match prev_line_o {
+            Some(mut prev_line) => {
+                let mut poly = VecDeque::new();
+                for line in stroke.lines() {
+                    let coord =
+                        as_coordinate((norm_lot(line) + norm_lot(prev_line)) / 2.0 * radius);
+                    let left_p = line.start + coord;
+                    let right_p = line.start - coord;
+                    poly.push_back(left_p);
+                    poly.push_front(right_p);
+                }
+                poly.rotate_left(poly.len() / 2);
+                return Ok(Polygon::new(LineString(poly.into()), Vec::new()));
+            }
+            None => {
+                return Err(());
+            }
+        },
+    }
+}
+
 impl AppState {
     pub fn dispatch(&mut self, action: Action) {
         match action {
@@ -151,11 +195,12 @@ impl AppState {
                 }
                 Tool::Hand => todo!(),
             },
+
             Action::MouseRelease(MouseReleaseAction { x, y }) => match self.tool {
                 Tool::Pen => {
                     let mut stroke = self.stroke.take().unwrap();
                     stroke.add(x, y);
-                    self.drawing.add(stroke, &self.viewport);
+                    self.drawing.add(stroke_to_polyline(stroke), &self.viewport, ConnectorType::Sharp);
                     self.stroke = None;
                 }
                 Tool::Eraser | Tool::ObjEraser => {

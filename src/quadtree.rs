@@ -1,7 +1,7 @@
 use crate::float::Float;
 use aatree::{AATreeMap, AATreeSet};
 use euclid::{default::Point2D, default::Transform2D};
-use geo::{Coordinate, LineString, Point};
+use geo::{Coordinate, LineString, Point, Polygon};
 use gtk::cairo::LineCap;
 use gtk::cairo::{Context, LineJoin};
 use rstar::{RTree, AABB};
@@ -37,7 +37,7 @@ impl Viewport {
 }
 
 pub trait Document {
-    fn add(&mut self, stroke: LineString<f64>, viewport: &Viewport);
+    fn add(&mut self, stroke: Polygon<f64>, viewport: &Viewport);
     fn elements_in_viewport<'a>(
         &'a self,
         viewport: &Viewport,
@@ -48,8 +48,8 @@ pub trait Document {
     ) -> Box<dyn Iterator<Item = &'a mut LineString<f64>> + 'a>;
 }
 
-impl Document for RTree<LineString<f64>> {
-    fn add(&mut self, stroke: LineString<f64>, viewport: &Viewport) {
+impl Document for RTree<Polygon<f64>> {
+    fn add(&mut self, stroke: Polygon<f64>, viewport: &Viewport) {
         let normalized_stroke = stroke.normalize(viewport);
         self.insert(normalized_stroke);
     }
@@ -57,17 +57,17 @@ impl Document for RTree<LineString<f64>> {
     fn elements_in_viewport<'a>(
         &'a self,
         viewport: &Viewport,
-    ) -> Box<dyn Iterator<Item = &'a LineString<f64>> + 'a> {
+    ) -> Box<dyn Iterator<Item = &'a Polygon<f64>> + 'a> {
         Box::new(self.locate_in_envelope_intersecting(&viewport.normalized()))
-            as Box<dyn Iterator<Item = &LineString<f64>>>
+            as Box<dyn Iterator<Item = &Polygon<f64>>>
     }
 
     fn elements_in_viewport_mut<'a>(
         &'a mut self,
         viewport: &Viewport,
-    ) -> Box<dyn Iterator<Item = &'a mut LineString<f64>> + 'a> {
+    ) -> Box<dyn Iterator<Item = &'a mut Polygon<f64>> + 'a> {
         Box::new(self.locate_in_envelope_intersecting_mut(&viewport.normalized()))
-            as Box<dyn Iterator<Item = &mut LineString<f64>>>
+            as Box<dyn Iterator<Item = &mut Polygon<f64>>>
     }
 }
 
@@ -84,7 +84,7 @@ pub trait Stroke: Sized {
         I: IntoIterator<Item = &'a LineString<f64>>;
 }
 
-impl Stroke for LineString<f64> {
+impl Stroke for Polygon<f64> {
     fn add(&mut self, x: f64, y: f64) {
         self.0.push((x, y).into());
     }
@@ -127,64 +127,7 @@ impl Stroke for LineString<f64> {
     where
         I: IntoIterator<Item = &'a LineString<f64>>,
     {
-        #[derive(Clone, Copy, Debug)]
-        struct Segment {
-            /// The start point of this segment. It has the smaller x value.
-            start: Coordinate<f64>,
-            /// The end point of this segment. It has the larger x value.
-            end: Coordinate<f64>,
-            /// The id of the line string it was originally part of.
-            id: usize,
-        }
-
-        #[derive(Debug)]
-        enum Event {
-            Start(Segment),
-            End(Segment),
-        }
-
-        // collect all segments from the line strings
-        let mut segments = Vec::new();
-        let mut i = 0;
-        let mut last: Option<Coordinate<f64>>;
-        for stroke in strokes {
-            last = None;
-            for point in stroke.0.iter().map(|p| *p) {
-                if let Some(last) = last {
-                    let (start, end) = if last.x > point.x {
-                        (point, last)
-                    } else {
-                        (last, point)
-                    };
-                    segments.push(Segment { start, end, id: i })
-                }
-                last = Some(point);
-            }
-            i += 1;
-        }
-
-        // collect all start/end events
-        let mut events = AATreeMap::<Float, Vec<Event>>::new();
-        for s in segments {
-            let start_x = Float::new(s.start.x);
-            if let Some(e) = events.get_mut(&start_x) {
-                e.push(Event::Start(s));
-            } else {
-                events.insert(start_x, vec![Event::Start(s)]);
-            }
-
-            let end_x = Float::new(s.end.x);
-            if let Some(e) = events.get_mut(&end_x) {
-                e.push(Event::End(s));
-            } else {
-                events.insert(end_x, vec![Event::End(s)]);
-            }
-        }
-        dbg!(events);
-
-        let mut above = AATreeSet::<Segment>::new();
-        let mut below = AATreeSet::<Segment>::new();
-
+        
         unimplemented!()
     }
 }
