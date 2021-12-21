@@ -52,7 +52,6 @@ pub struct MousePressAction {
 }
 
 #[derive(Clone, Copy)]
-
 pub struct MouseMotionAction {
     pub x: f64,
     pub y: f64,
@@ -142,14 +141,19 @@ impl AppState {
                 Tool::Pen | Tool::Eraser | Tool::ObjEraser => {
                     self.stroke = Some(LineString(Vec::new()));
                     self.stroke.as_mut().unwrap().add(x, y);
-                }
-                Tool::Hand => todo!(),
+                },
+                Tool::Hand => {
+                    self.scroll_state = Some(ScrollState::new(x, y));
+                },
             },
             Action::MouseMotion(MouseMotionAction { x, y }) => match self.tool {
                 Tool::Pen | Tool::Eraser | Tool::ObjEraser => {
                     self.stroke.as_mut().unwrap().add(x, y);
-                }
-                Tool::Hand => todo!(),
+                },
+                Tool::Hand => {
+                    let scroll_state = self.scroll_state.as_mut().unwrap();
+                    scroll_state.consume_and_apply(&mut self.viewport, x, y);
+                },
             },
             Action::MouseRelease(MouseReleaseAction { x, y }) => match self.tool {
                 Tool::Pen => {
@@ -177,7 +181,12 @@ impl AppState {
                     }
                     self.stroke = None;
                 }
-                Tool::Hand => todo!(),
+                Tool::Hand => {
+                    let scroll_state = self.scroll_state.as_mut().unwrap();
+                    scroll_state.consume_and_apply(&mut self.viewport, x, y);
+
+                    self.scroll_state = None;
+                }
             },
             Action::Allocation(AllocationAction { width, height }) => {
                 self.viewport.width = width;
@@ -200,26 +209,30 @@ impl AppState {
                 }
                 self.viewport.transform.m31 -= ddx * self.viewport.transform.m11;
                 self.viewport.transform.m32 -= ddy * self.viewport.transform.m11;
-            }
+            },
             Action::ScrollEnd => {
                 self.scroll_state = None;
-            }
+            },
             Action::ToolPen => {
                 self.tool = Tool::Pen;
-            }
+            },
             Action::ToolEraser => {
                 self.tool = Tool::Eraser;
-            }
+            },
             Action::ToolObjEraser => {
                 self.tool = Tool::ObjEraser;
-            }
-            Action::ToolHand => todo!(),
+            },
+            Action::ToolHand => {
+                self.tool = Tool::Hand;
+            },
             Action::Zoom(ZoomEvent { dscale }) => {
-                let dscale = dscale / 10f64;
+                let old_scale = self.viewport.transform.m22;
+                let dscale = dscale * old_scale;
                 let mut dx = 0f64;
                 let mut dy = 0f64;
                 let scale_y = self.viewport.transform.m22 + dscale;
                 let scale_x = self.viewport.transform.m11 + dscale;
+
                 if let Some((x, y)) = self.pointer_old {
                     dx = x * dscale;
                     dy = y * dscale;
@@ -230,10 +243,30 @@ impl AppState {
                     self.viewport.transform.m31 -= dx;
                     self.viewport.transform.m32 -= dy;
                 }
-            }
+            },
             Action::Motion(MotionEvent { x, y }) => {
                 self.pointer_old = Some((x, y));
             }
         }
+    }
+}
+
+impl ScrollState {
+    pub fn new(initial_x: f64, initial_y: f64) -> ScrollState {
+        ScrollState { x_old: initial_x, y_old: initial_y }
+    }
+
+    /// Applies this' state to the viewport.
+    ///
+    /// Consumes this' current state and uses it to update the viewport's translation.
+    pub fn consume_and_apply(&mut self, viewport: &mut Viewport, x: f64, y: f64) {
+        let dx = x - self.x_old;
+        let dy = y - self.y_old;
+        let delta = -euclid::Vector2D::new(dx, dy);
+
+        viewport.transform = viewport.transform.pre_translate(delta);
+
+        self.x_old = x;
+        self.y_old = y;
     }
 }
